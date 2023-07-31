@@ -3,6 +3,8 @@
 
 use std::fmt::Display;
 
+use crate::constants::Direction;
+
 /// Represents particular position on a chess board.
 /// It is used in variety of places, but the main purpose of bitboards is to represent position
 /// for pieces of each color.
@@ -187,5 +189,34 @@ impl Bitboard {
     /// Creates bitboard with `1` on the given square, with rest of the board filled with `0`.
     pub fn from_square_number(square: u8) -> Self {
         Self(1_u64 << square)
+    }
+
+    /// Creates empty board (filled with zeros).
+    pub fn empty() -> Self {
+        Self(0)
+    }
+
+    /// Creates board filled with ones.
+    pub fn universe() -> Self {
+        Self(u64::MAX)
+    }
+
+    /// Move bitboard by 1 in [Direction].
+    /// Use only with single bitsets.
+    pub fn one_step_by_direction(&mut self, direction: Direction) {
+        assert!(self.0.count_ones() == 1); // is single bitset
+        let mask_a_file = 0xfefefefefefefefe_u64;
+        let mask_h_file = 0x7f7f7f7f7f7f7f7f_u64;
+
+        match direction {
+            Direction::North => self.0 << 8,
+            Direction::NorthEast => (self.0 << 9) & mask_a_file,
+            Direction::East => (self.0 << 1) & mask_a_file,
+            Direction::SouthEast => (self.0 >> 1) & mask_a_file,
+            Direction::South => self.0 >> 8,
+            Direction::SouthWest => (self.0 >> 9) & mask_h_file,
+            Direction::West => (self.0 >> 1) & mask_h_file,
+            Direction::NorthWest => (self.0 << 7) & mask_h_file,
+        };
     }
 }
