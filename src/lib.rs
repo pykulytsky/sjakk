@@ -1,5 +1,6 @@
 pub mod bitboard;
 pub mod constants;
+pub mod rays;
 pub mod square;
 pub mod utils;
 

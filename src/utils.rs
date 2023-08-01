@@ -17,3 +17,13 @@ pub fn bit_scan_reverse(mut bits: u64) -> u8 {
     bits |= bits >> 32;
     unsafe { *DEBRUIJ_T.get_unchecked((bits.wrapping_mul(DEBRUIJ_M)).wrapping_shr(58) as usize) }
 }
+
+#[inline]
+pub const fn upper_ones(square: u8) -> u64 {
+    !1_u64 << square
+}
+
+#[inline]
+pub const fn lower_ones(square: u8) -> u64 {
+    (1_u64 << square) - 1
+}
