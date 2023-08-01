@@ -3,7 +3,7 @@
 
 use std::fmt::Display;
 
-use crate::constants::Direction;
+use crate::{constants::Direction, File, Rank, Square};
 
 /// Represents particular position on a chess board.
 /// It is used in variety of places, but the main purpose of bitboards is to represent position
@@ -201,7 +201,7 @@ impl Bitboard {
         Self(u64::MAX)
     }
 
-    /// Move bitboard by 1 in [Direction].
+    /// Move bitboard by 1 bit in [`Direction`].
     /// Use only with single bitsets.
     pub fn one_step_by_direction(&mut self, direction: Direction) {
         assert!(self.0.count_ones() == 1); // is single bitset
@@ -220,7 +220,32 @@ impl Bitboard {
         };
     }
 
+    /// Returns true if this [`Bitboard`] is not filled with zeros.
     pub fn is_set(&self) -> bool {
         self.0 != 0
+    }
+
+    /// Returns the rank of this [`Bitboard`].
+    pub fn rank(&self) -> Rank {
+        assert!(self.0.count_ones() == 1); // is single bitset
+        todo!()
+    }
+
+    /// Returns the file of this [`Bitboard`].
+    pub fn file(&self) -> File {
+        assert!(self.0.count_ones() == 1); // is single bitset
+        todo!()
+    }
+}
+
+pub struct NotSingleBitset;
+
+impl TryInto<Square> for Bitboard {
+    type Error = NotSingleBitset;
+    fn try_into(self) -> Result<Square, Self::Error> {
+        if self.0.count_ones() == 1 {
+            return Ok(Square::new(self.rank(), self.file()));
+        }
+        Err(NotSingleBitset)
     }
 }
