@@ -219,4 +219,8 @@ impl Bitboard {
             Direction::NorthWest => (self.0 << 7) & mask_h_file,
         };
     }
+
+    pub fn is_set(&self) -> bool {
+        self.0 != 0
+    }
 }

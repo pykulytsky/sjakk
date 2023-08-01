@@ -22,8 +22,3 @@ pub enum Direction {
     West,
     NorthWest,
 }
-
-pub fn test(dir: Direction) {
-    let arr = [1, 2, 3, 4, 5, 6, 7, 8];
-    println!("{}", arr[dir as usize]);
-}
