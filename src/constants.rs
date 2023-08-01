@@ -4,13 +4,14 @@ use strum_macros::EnumIter;
 ///
 ///  northwest    north   northeast
 ///  noWe         nort         noEa
-///          
+///  `       
 ///              \  |  /
 ///  west       <-  0 ->       east
 ///              /  |  \
 ///
 ///  soWe         sout         soEa
 ///  southwest    south   southeast
+///  `
 #[derive(Debug, EnumIter)]
 pub enum Direction {
     North,
