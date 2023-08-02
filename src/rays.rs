@@ -3,6 +3,7 @@ use crate::Direction::*;
 
 pub const RAY_ATTACKS: [[u64; 8]; 64] = ray_attacks();
 
+#[inline]
 pub const fn ray_attacks() -> [[u64; 8]; 64] {
     let mut rays = [[0u64; 8]; 64];
 
@@ -22,6 +23,7 @@ pub const fn ray_attacks() -> [[u64; 8]; 64] {
     rays
 }
 
+#[inline]
 pub const fn ray_attacks_diag(sq: usize) -> (u64, u64) {
     let maindia = 0x8040201008040201_u64;
 
@@ -34,6 +36,7 @@ pub const fn ray_attacks_diag(sq: usize) -> (u64, u64) {
     (south_west, north_east)
 }
 
+#[inline]
 pub const fn ray_attacks_antidiag(sq: usize) -> (u64, u64) {
     let maindia = 0x0102040810204080_u64;
     let antidiag: isize = 7 - (sq as isize & 7) - (sq as isize >> 3);

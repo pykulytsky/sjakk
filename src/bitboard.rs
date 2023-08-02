@@ -203,6 +203,7 @@ impl Bitboard {
 
     /// Move bitboard by 1 bit in [`Direction`].
     /// Use only with single bitsets.
+    #[inline]
     pub fn one_step_by_direction(&mut self, direction: Direction) {
         assert!(self.0.count_ones() == 1); // is single bitset
         let mask_a_file = 0xfefefefefefefefe_u64;
