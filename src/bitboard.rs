@@ -28,6 +28,13 @@ impl std::ops::BitOr for Bitboard {
     }
 }
 
+impl std::ops::BitOr<&Bitboard> for &Bitboard {
+    type Output = Bitboard;
+    fn bitor(self, rhs: &Bitboard) -> Bitboard {
+        Bitboard(self.0 | rhs.0)
+    }
+}
+
 impl std::ops::BitOr<u64> for Bitboard {
     type Output = Self;
     fn bitor(self, rhs: u64) -> Self::Output {
@@ -42,6 +49,13 @@ impl std::ops::BitAnd for Bitboard {
     }
 }
 
+impl std::ops::BitAnd for &Bitboard {
+    type Output = Bitboard;
+    fn bitand(self, rhs: &Bitboard) -> Bitboard {
+        Bitboard(self.0 & rhs.0)
+    }
+}
+
 impl std::ops::BitAnd<u64> for Bitboard {
     type Output = Self;
     fn bitand(self, rhs: u64) -> Self::Output {
@@ -53,6 +67,13 @@ impl std::ops::BitXor for Bitboard {
     type Output = Self;
     fn bitxor(self, rhs: Self) -> Self::Output {
         Self(self.0 ^ rhs.0)
+    }
+}
+
+impl std::ops::BitXor for &Bitboard {
+    type Output = Bitboard;
+    fn bitxor(self, rhs: &Bitboard) -> Bitboard {
+        Bitboard(self.0 ^ rhs.0)
     }
 }
 
@@ -72,6 +93,12 @@ impl std::ops::BitOrAssign for Bitboard {
 impl std::ops::BitOrAssign<u64> for Bitboard {
     fn bitor_assign(&mut self, rhs: u64) {
         self.0 |= rhs
+    }
+}
+
+impl std::ops::BitOrAssign<&Bitboard> for Bitboard {
+    fn bitor_assign(&mut self, rhs: &Bitboard) {
+        self.0 |= rhs.0
     }
 }
 
