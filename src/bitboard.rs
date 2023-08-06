@@ -269,7 +269,8 @@ impl Bitboard {
         todo!()
     }
 
-    #[inline]
+    /// Returns [`Square`], which is represented by least significant bit.
+    /// Can be used to iterate over all pieces, which exists on particular [`Bitboard`]
     pub fn lsb_square(&self) -> Square {
         Square(self.0.trailing_zeros() as u8)
     }
@@ -289,9 +290,9 @@ impl Iterator for Bitboard {
         if self.0 == 0 {
             None
         } else {
-            let result = self.lsb_square();
-            *self ^= Bitboard::from_square(result);
-            Some(result)
+            let lsb = self.lsb_square();
+            *self ^= Bitboard::from_square(lsb);
+            Some(lsb)
         }
     }
 }

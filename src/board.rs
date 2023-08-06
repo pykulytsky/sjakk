@@ -1,5 +1,6 @@
-use crate::{constants, moves::Move};
+use crate::{constants, moves::Move, piece::PieceType};
 use crate::{piece::Color, Bitboard};
+use strum::IntoEnumIterator;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub enum Status {
@@ -18,6 +19,7 @@ pub struct Board {
 }
 
 impl Board {
+    #[inline]
     pub fn white(&self) -> Bitboard {
         self.white_pieces
             .into_iter()
@@ -25,6 +27,7 @@ impl Board {
             .unwrap()
     }
 
+    #[inline]
     pub fn black(&self) -> Bitboard {
         self.black_pieces
             .into_iter()
@@ -32,8 +35,53 @@ impl Board {
             .unwrap()
     }
 
+    #[inline]
     pub fn all_pieces(&self) -> Bitboard {
         self.white() | self.black()
+    }
+
+    #[inline]
+    pub fn free(&self) -> Bitboard {
+        !self.all_pieces()
+    }
+
+    #[inline]
+    pub fn pseudo_legal_moves(&self) -> Bitboard {
+        match self.side_to_move {
+            Color::White => self.pseudo_legal_moves_white(),
+            Color::Black => self.pseudo_legal_moves_black(),
+        }
+    }
+
+    #[inline]
+    fn pseudo_legal_moves_white(&self) -> Bitboard {
+        let mut pseudo_legal_moves = Bitboard(0);
+        for piece in PieceType::iter() {
+            for sq in self.white_pieces[piece as usize] {
+                pseudo_legal_moves |=
+                    piece.pseudo_legal_moves(sq, Color::White, self.all_pieces(), self.white());
+            }
+        }
+        pseudo_legal_moves
+    }
+
+    #[inline]
+    fn pseudo_legal_moves_black(&self) -> Bitboard {
+        let mut pseudo_legal_moves = Bitboard(0);
+        for piece in PieceType::iter() {
+            for sq in self.black_pieces[piece as usize] {
+                pseudo_legal_moves |=
+                    piece.pseudo_legal_moves(sq, Color::Black, self.all_pieces(), self.black());
+            }
+        }
+        pseudo_legal_moves
+    }
+
+    pub fn make_move(&mut self) {
+        self.side_to_move = match self.side_to_move {
+            Color::White => Color::Black,
+            Color::Black => Color::White,
+        };
     }
 }
 
