@@ -37,8 +37,12 @@ impl std::fmt::Display for PieceType {
 }
 
 pub trait Piece {
-    fn pseudo_legal_moves(square: Square, color: Color, enemy: Bitboard, own: Bitboard)
-        -> Bitboard;
+    fn pseudo_legal_moves(
+        square: Square,
+        color: Color,
+        occupied: Bitboard,
+        own: Bitboard,
+    ) -> Bitboard;
 }
 
 pub struct Pawn;
@@ -99,7 +103,7 @@ fn sliding_piece_pseudo_moves(
         sliding_attacks |= attacks;
     }
 
-    Bitboard(sliding_attacks)
+    Bitboard((sliding_attacks ^ own.0) & sliding_attacks)
 }
 
 pub struct Rook;
@@ -108,11 +112,11 @@ impl Piece for Rook {
     fn pseudo_legal_moves(
         square: Square,
         _color: Color,
-        enemy: Bitboard,
+        occupied: Bitboard,
         own: Bitboard,
     ) -> Bitboard {
         let sq = square.as_square_number() as usize;
-        sliding_piece_pseudo_moves(sq, enemy, own, 0)
+        sliding_piece_pseudo_moves(sq, occupied, own, 0)
     }
 }
 
@@ -122,10 +126,25 @@ impl Piece for Bishop {
     fn pseudo_legal_moves(
         square: Square,
         _color: Color,
-        enemy: Bitboard,
+        occupied: Bitboard,
         own: Bitboard,
     ) -> Bitboard {
         let sq = square.as_square_number() as usize;
-        sliding_piece_pseudo_moves(sq, enemy, own, 1)
+        sliding_piece_pseudo_moves(sq, occupied, own, 1)
+    }
+}
+
+pub struct Queen;
+
+impl Piece for Queen {
+    fn pseudo_legal_moves(
+        square: Square,
+        _color: Color,
+        occupied: Bitboard,
+        own: Bitboard,
+    ) -> Bitboard {
+        let sq = square.as_square_number() as usize;
+        sliding_piece_pseudo_moves(sq, occupied, own, 0)
+            | sliding_piece_pseudo_moves(sq, occupied, own, 1)
     }
 }
