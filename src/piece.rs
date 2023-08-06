@@ -54,7 +54,7 @@ impl Piece for Pawn {
         enemy: Bitboard,
         own: Bitboard,
     ) -> Bitboard {
-        let sq = square.as_square_number();
+        let sq = square.0;
         let sq = Bitboard::from_square_number(sq);
         let all_pieces = enemy | own;
         let one_step = match color {
@@ -115,7 +115,7 @@ impl Piece for Rook {
         occupied: Bitboard,
         own: Bitboard,
     ) -> Bitboard {
-        let sq = square.as_square_number() as usize;
+        let sq = square.0 as usize;
         sliding_piece_pseudo_moves(sq, occupied, own, 0)
     }
 }
@@ -129,7 +129,7 @@ impl Piece for Bishop {
         occupied: Bitboard,
         own: Bitboard,
     ) -> Bitboard {
-        let sq = square.as_square_number() as usize;
+        let sq = square.0 as usize;
         sliding_piece_pseudo_moves(sq, occupied, own, 1)
     }
 }
@@ -143,7 +143,7 @@ impl Piece for Queen {
         occupied: Bitboard,
         own: Bitboard,
     ) -> Bitboard {
-        let sq = square.as_square_number() as usize;
+        let sq = square.0 as usize;
         sliding_piece_pseudo_moves(sq, occupied, own, 0)
             | sliding_piece_pseudo_moves(sq, occupied, own, 1)
     }

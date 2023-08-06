@@ -29,23 +29,23 @@ pub enum File {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Square {
-    rank: Rank,
-    file: File,
-}
-
+pub struct Square(pub u8);
 impl Square {
-    pub const fn new(rank: Rank, file: File) -> Self {
-        Self { rank, file }
+    pub fn from_square_and_rank(file: File, rank: Rank) -> Self {
+        todo!()
     }
 
-    pub fn as_square_number(&self) -> u8 {
-        self.rank as u8 * 8 + self.file as u8
+    pub fn file() -> File {
+        todo!()
+    }
+
+    pub fn rank() -> Rank {
+        todo!()
     }
 }
 
 impl Into<Bitboard> for Square {
     fn into(self) -> Bitboard {
-        Bitboard::from_square_number(self.as_square_number())
+        Bitboard::from_square_number(self.0)
     }
 }

@@ -218,6 +218,10 @@ impl Bitboard {
         Self(1_u64 << square)
     }
 
+    pub fn from_square(sq: Square) -> Bitboard {
+        Bitboard(1u64 << sq.0)
+    }
+
     /// Creates empty board (filled with zeros).
     pub fn empty() -> Self {
         Self(0)
@@ -264,16 +268,30 @@ impl Bitboard {
         assert!(self.0.count_ones() == 1); // is single bitset
         todo!()
     }
+
+    #[inline]
+    pub fn lsb_square(&self) -> Square {
+        Square(self.0.trailing_zeros() as u8)
+    }
 }
 
-pub struct NotSingleBitset;
+impl Into<Square> for Bitboard {
+    fn into(self) -> Square {
+        self.lsb_square()
+    }
+}
 
-impl TryInto<Square> for Bitboard {
-    type Error = NotSingleBitset;
-    fn try_into(self) -> Result<Square, Self::Error> {
-        if self.0.count_ones() == 1 {
-            return Ok(Square::new(self.rank(), self.file()));
+impl Iterator for Bitboard {
+    type Item = Square;
+
+    #[inline]
+    fn next(&mut self) -> Option<Square> {
+        if self.0 == 0 {
+            None
+        } else {
+            let result = self.lsb_square();
+            *self ^= Bitboard::from_square(result);
+            Some(result)
         }
-        Err(NotSingleBitset)
     }
 }
