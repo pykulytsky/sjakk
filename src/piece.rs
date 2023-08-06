@@ -1,5 +1,7 @@
 use crate::{
     constants::{CLEAR_FILE, MASK_RANK},
+    rays::RAY_ATTACKS,
+    utils::{bit_scan_forward, bit_scan_reverse, BITSCAN_FORWARD},
     Bitboard, Square,
 };
 
@@ -70,5 +72,60 @@ impl Piece for Pawn {
         let valid_moves = valid_moves | valid_attacks;
 
         valid_moves
+    }
+}
+
+fn sliding_piece_pseudo_moves(
+    sq: usize,
+    occupied: Bitboard,
+    own: Bitboard,
+    step: usize,
+) -> Bitboard {
+    let mut sliding_attacks = 0;
+
+    for i in 0..4 {
+        let i = i * 2 + step;
+        let mut attacks = RAY_ATTACKS[sq][i];
+        let blocker = attacks & occupied.0;
+        if blocker != 0 {
+            let blocker_square = if BITSCAN_FORWARD.contains(&i) {
+                bit_scan_forward(blocker)
+            } else {
+                bit_scan_reverse(blocker)
+            } as usize;
+            attacks ^= RAY_ATTACKS[blocker_square][i];
+        }
+
+        sliding_attacks |= attacks;
+    }
+
+    Bitboard(sliding_attacks)
+}
+
+pub struct Rook;
+
+impl Piece for Rook {
+    fn pseudo_legal_moves(
+        square: Square,
+        _color: Color,
+        enemy: Bitboard,
+        own: Bitboard,
+    ) -> Bitboard {
+        let sq = square.as_square_number() as usize;
+        sliding_piece_pseudo_moves(sq, enemy, own, 0)
+    }
+}
+
+pub struct Bishop;
+
+impl Piece for Bishop {
+    fn pseudo_legal_moves(
+        square: Square,
+        _color: Color,
+        enemy: Bitboard,
+        own: Bitboard,
+    ) -> Bitboard {
+        let sq = square.as_square_number() as usize;
+        sliding_piece_pseudo_moves(sq, enemy, own, 1)
     }
 }
