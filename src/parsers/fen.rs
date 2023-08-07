@@ -72,6 +72,9 @@ fn parse_active_color(color: &str) -> Result<Color, FENParseError> {
     }
 }
 
+/// Parses piece placement part of FEN.
+/// Since in FEN notation goes from 8 rank to 1 rank, we flip resulting [`Bitboard`]'s vertically,
+/// to fit internal [`Bitboard`] representation.
 fn parse_piece_placement(notation: &str) -> Result<[[Bitboard; 6]; 2], FENParseError> {
     println!("{notation}");
     let mut offset = 0;

@@ -1,4 +1,9 @@
-use crate::{constants, moves::Move, piece::PieceType};
+use crate::{
+    constants,
+    moves::Move,
+    parsers::fen::{self, FENParseError},
+    piece::PieceType,
+};
 use crate::{piece::Color, Bitboard};
 use strum::IntoEnumIterator;
 
@@ -11,11 +16,11 @@ pub enum Status {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq)]
 pub struct Board {
-    white_pieces: [Bitboard; 6],
-    black_pieces: [Bitboard; 6],
-    move_list: Vec<Move>,
-    side_to_move: Color,
-    status: Status,
+    pub white_pieces: [Bitboard; 6],
+    pub black_pieces: [Bitboard; 6],
+    pub move_list: Vec<Move>,
+    pub side_to_move: Color,
+    pub status: Status,
 }
 
 impl Board {
@@ -27,6 +32,17 @@ impl Board {
             side_to_move: Color::White,
             status: Status::Ongoing,
         }
+    }
+
+    pub fn from_fen(input: &str) -> Result<Self, FENParseError> {
+        let parsed = fen::parse(input)?;
+        Ok(Self {
+            white_pieces: parsed.pieces[Color::White as usize],
+            black_pieces: parsed.pieces[Color::Black as usize],
+            move_list: vec![],
+            side_to_move: parsed.active_color,
+            status: Status::Ongoing,
+        })
     }
 
     #[inline]
