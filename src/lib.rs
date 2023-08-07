@@ -2,6 +2,7 @@ pub mod bitboard;
 pub mod board;
 pub mod constants;
 pub mod moves;
+pub mod parsers;
 pub mod piece;
 pub mod rays;
 pub mod square;

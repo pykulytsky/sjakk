@@ -3,7 +3,7 @@ use strum_macros::EnumIter;
 use crate::{
     constants::{CLEAR_FILE, MASK_RANK},
     rays::RAY_ATTACKS,
-    utils::{bit_scan_forward, bit_scan_reverse, BITSCAN_FORWARD},
+    utils::{bit_scan_forward, bit_scan_reverse, POSITIVE_RAYS},
     Bitboard, Square,
 };
 
@@ -113,7 +113,7 @@ fn sliding_piece_pseudo_moves(
         let mut attacks = RAY_ATTACKS[sq][i];
         let blocker = attacks & occupied.0;
         if blocker != 0 {
-            let blocker_square = if BITSCAN_FORWARD.contains(&i) {
+            let blocker_square = if POSITIVE_RAYS.contains(&i) {
                 bit_scan_forward(blocker)
             } else {
                 bit_scan_reverse(blocker)

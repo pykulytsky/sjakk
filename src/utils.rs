@@ -1,7 +1,7 @@
 use crate::constants::{DEBRUIJ_M, DEBRUIJ_T};
 
-pub const BITSCAN_FORWARD: [usize; 4] = [0, 1, 2, 7];
-pub const BITSCAN_REVERSE: [usize; 4] = [3, 4, 5, 6];
+pub const POSITIVE_RAYS: [usize; 4] = [0, 1, 2, 7];
+pub const NEGATIVE_RAYS: [usize; 4] = [3, 4, 5, 6];
 
 #[inline(always)]
 pub fn bit_scan_forward(bits: u64) -> u8 {

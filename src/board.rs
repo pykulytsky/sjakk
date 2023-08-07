@@ -56,27 +56,27 @@ impl Board {
     }
 
     #[inline]
-    pub fn pseudo_legal_moves(&self) -> Bitboard {
+    pub fn pseudo_legal_moves(&self) -> Vec<Move> {
         match self.side_to_move {
             Color::White => self.pseudo_legal_moves_white(),
             Color::Black => self.pseudo_legal_moves_black(),
         }
     }
 
+    // #[inline]
+    // fn pseudo_legal_moves_white(&self) -> Bitboard {
+    //     let mut pseudo_legal_moves = Bitboard(0);
+    //     for piece in PieceType::iter() {
+    //         for sq in self.white_pieces[piece as usize] {
+    //             pseudo_legal_moves |=
+    //                 piece.pseudo_legal_moves(sq, Color::White, self.all_pieces(), self.white());
+    //         }
+    //     }
+    //     pseudo_legal_moves
+    // }
+    //
     #[inline]
-    fn pseudo_legal_moves_white(&self) -> Bitboard {
-        let mut pseudo_legal_moves = Bitboard(0);
-        for piece in PieceType::iter() {
-            for sq in self.white_pieces[piece as usize] {
-                pseudo_legal_moves |=
-                    piece.pseudo_legal_moves(sq, Color::White, self.all_pieces(), self.white());
-            }
-        }
-        pseudo_legal_moves
-    }
-
-    #[inline]
-    pub fn pseudo_legal_moves_white_to_moves(&self) -> Vec<Move> {
+    pub fn pseudo_legal_moves_white(&self) -> Vec<Move> {
         let mut moves = vec![];
         for piece in PieceType::iter() {
             for sq in self.white_pieces[piece as usize] {
@@ -90,17 +90,31 @@ impl Board {
     }
 
     #[inline]
-    fn pseudo_legal_moves_black(&self) -> Bitboard {
-        let mut pseudo_legal_moves = Bitboard(0);
+    pub fn pseudo_legal_moves_black(&self) -> Vec<Move> {
+        let mut moves = vec![];
         for piece in PieceType::iter() {
             for sq in self.black_pieces[piece as usize] {
-                pseudo_legal_moves |=
-                    piece.pseudo_legal_moves(sq, Color::Black, self.all_pieces(), self.black());
+                for m in piece.pseudo_legal_moves(sq, Color::Black, self.all_pieces(), self.black())
+                {
+                    moves.push(Move::new(sq, m, false, None));
+                }
             }
         }
-        pseudo_legal_moves
+        moves
     }
 
+    // #[inline]
+    // fn pseudo_legal_moves_black(&self) -> Bitboard {
+    //     let mut pseudo_legal_moves = Bitboard(0);
+    //     for piece in PieceType::iter() {
+    //         for sq in self.black_pieces[piece as usize] {
+    //             pseudo_legal_moves |=
+    //                 piece.pseudo_legal_moves(sq, Color::Black, self.all_pieces(), self.black());
+    //         }
+    //     }
+    //     pseudo_legal_moves
+    // }
+    //
     pub fn make_move(&mut self) {
         self.side_to_move = match self.side_to_move {
             Color::White => Color::Black,
