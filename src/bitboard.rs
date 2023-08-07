@@ -18,7 +18,7 @@ use crate::{constants::Direction, File, Rank, Square};
 /// assert_eq!(all_pawns, 0b0000000011111111000000000000000000000000000000001111111100000000);
 /// ```
 ///
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Bitboard(pub u64);
 
 impl std::ops::BitOr for Bitboard {

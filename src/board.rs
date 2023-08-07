@@ -19,6 +19,16 @@ pub struct Board {
 }
 
 impl Board {
+    pub fn new(white_pieces: [Bitboard; 6], black_pieces: [Bitboard; 6]) -> Self {
+        Self {
+            white_pieces,
+            black_pieces,
+            move_list: vec![],
+            side_to_move: Color::White,
+            status: Status::Ongoing,
+        }
+    }
+
     #[inline]
     pub fn white(&self) -> Bitboard {
         self.white_pieces
@@ -66,6 +76,20 @@ impl Board {
     }
 
     #[inline]
+    pub fn pseudo_legal_moves_white_to_moves(&self) -> Vec<Move> {
+        let mut moves = vec![];
+        for piece in PieceType::iter() {
+            for sq in self.white_pieces[piece as usize] {
+                for m in piece.pseudo_legal_moves(sq, Color::White, self.all_pieces(), self.white())
+                {
+                    moves.push(Move::new(sq, m, false, None));
+                }
+            }
+        }
+        moves
+    }
+
+    #[inline]
     fn pseudo_legal_moves_black(&self) -> Bitboard {
         let mut pseudo_legal_moves = Bitboard(0);
         for piece in PieceType::iter() {
@@ -82,6 +106,42 @@ impl Board {
             Color::White => Color::Black,
             Color::Black => Color::White,
         };
+    }
+
+    #[inline]
+    pub fn attacks_to_king(&self) -> Bitboard {
+        let mut attacks_to_king_bitboard = Bitboard(0);
+        let (king_square, oposite_side, color) = match self.side_to_move {
+            Color::White => (
+                self.white_pieces[PieceType::King as usize],
+                self.black_pieces,
+                Color::White,
+            ),
+            Color::Black => (
+                self.black_pieces[PieceType::King as usize],
+                self.white_pieces,
+                Color::Black,
+            ),
+        };
+        // Skip the [`PieceType::King`], since you can not check with king.
+        for piece in PieceType::iter().take(5) {
+            for sq in oposite_side[piece as usize] {
+                attacks_to_king_bitboard |= king_square
+                    & piece.pseudo_legal_moves(sq, color, self.all_pieces(), self.black());
+            }
+        }
+
+        attacks_to_king_bitboard
+    }
+
+    #[inline]
+    pub fn king_in_check(&self) -> bool {
+        let king = match self.side_to_move {
+            Color::White => self.white_pieces[PieceType::King as usize],
+            Color::Black => self.black_pieces[PieceType::King as usize],
+        };
+
+        (king.0 & self.attacks_to_king().0) > 1
     }
 }
 
