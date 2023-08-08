@@ -4,7 +4,7 @@ use crate::{
     parsers::fen::{self, FENParseError},
     piece::{Color, Pawn, PieceType},
     rays::RAY_ATTACKS,
-    Bitboard, Square,
+    Bitboard, Rank, Square,
 };
 use strum::IntoEnumIterator;
 
@@ -158,7 +158,16 @@ impl Board {
                 .enumerate()
                 .find(|(_, b)| b.0 & square_bitboard.0 != 0)
                 .map(|(i, _)| PieceType::from_index(i));
-            move_list.push(Move::new(sq, m, piece, target, None));
+            let promotion = if piece == PieceType::Pawn
+                && ((m.rank() == Rank::Rank8 && self.side_to_move == Color::White)
+                    || (m.rank() == Rank::Rank1 && self.side_to_move == Color::Black))
+            {
+                // TODO: add functionallity to promote to other pieces.
+                Some(PieceType::Queen)
+            } else {
+                None
+            };
+            move_list.push(Move::new(sq, m, piece, target, promotion));
         }
     }
 
@@ -226,9 +235,22 @@ impl Board {
         let to_bb = Bitboard(1_u64 << m.to.0);
         let from_to_bb = from_bb ^ to_bb;
 
-        match self.side_to_move {
-            Color::White => self.white_pieces[m.piece as usize] ^= from_to_bb,
-            Color::Black => self.black_pieces[m.piece as usize] ^= from_to_bb,
+        if let Some(promotion) = m.promotion {
+            match self.side_to_move {
+                Color::White => {
+                    self.white_pieces[m.piece as usize] ^= from_bb;
+                    self.white_pieces[promotion as usize] ^= to_bb;
+                }
+                Color::Black => {
+                    self.black_pieces[m.piece as usize] ^= from_bb;
+                    self.black_pieces[promotion as usize] ^= to_bb;
+                }
+            }
+        } else {
+            match self.side_to_move {
+                Color::White => self.white_pieces[m.piece as usize] ^= from_to_bb,
+                Color::Black => self.black_pieces[m.piece as usize] ^= from_to_bb,
+            }
         }
 
         if let Some(captured_piece) = m.capture {

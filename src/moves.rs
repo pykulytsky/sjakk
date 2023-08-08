@@ -31,10 +31,15 @@ impl std::fmt::Display for Move {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{}{}{}",
+            "{}{}{}{}",
             self.piece,
             if self.capture.is_some() { "x" } else { "" },
-            self.to
+            self.to,
+            if let Some(promotion) = self.promotion {
+                format!("={promotion}")
+            } else {
+                "".to_string()
+            }
         )
     }
 }
