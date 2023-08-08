@@ -162,7 +162,9 @@ impl Board {
                 && ((m.rank() == Rank::Rank8 && self.side_to_move == Color::White)
                     || (m.rank() == Rank::Rank1 && self.side_to_move == Color::Black))
             {
-                // TODO: add functionallity to promote to other pieces.
+                move_list.push(Move::new(sq, m, piece, target, Some(PieceType::Rook)));
+                move_list.push(Move::new(sq, m, piece, target, Some(PieceType::Bishop)));
+                move_list.push(Move::new(sq, m, piece, target, Some(PieceType::Knight)));
                 Some(PieceType::Queen)
             } else {
                 None
