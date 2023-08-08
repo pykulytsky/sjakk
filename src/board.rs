@@ -66,6 +66,20 @@ impl Board {
         self.white() | self.black()
     }
 
+    pub fn pieces(&self, color: Color) -> [Bitboard; 6] {
+        match color {
+            Color::White => self.white_pieces,
+            Color::Black => self.black_pieces,
+        }
+    }
+
+    pub fn pieces_combined(&self, color: Color) -> Bitboard {
+        match color {
+            Color::White => self.white(),
+            Color::Black => self.black(),
+        }
+    }
+
     #[inline]
     pub fn free(&self) -> Bitboard {
         !self.all_pieces()
@@ -73,22 +87,28 @@ impl Board {
 
     #[inline]
     pub fn pseudo_legal_moves(&self) -> Vec<Move> {
-        let (own_pieces, color, own_combined) = match self.side_to_move {
-            Color::White => (self.white_pieces, Color::White, self.white()),
-            Color::Black => (self.black_pieces, Color::Black, self.black()),
+        let (own_pieces, own_combined) = match self.side_to_move {
+            Color::White => (self.white_pieces, self.white()),
+            Color::Black => (self.black_pieces, self.black()),
         };
         let mut moves = vec![];
         if self.king_in_check() {
         } else {
             for piece in PieceType::iter() {
                 for sq in own_pieces[piece as usize] {
-                    let mut bb =
-                        piece.pseudo_legal_moves(sq, color, self.all_pieces(), own_combined);
+                    let mut bb = piece.pseudo_legal_moves(
+                        sq,
+                        self.side_to_move,
+                        self.all_pieces(),
+                        own_combined,
+                    );
                     if piece == PieceType::King {
-                        let opposite_side_attacks =
-                            self.opposite_side_attacks(self.black_pieces, Color::Black);
+                        let opposite_side_attacks = self.opposite_side_attacks(
+                            self.pieces(self.side_to_move.opposite()),
+                            self.side_to_move.opposite(),
+                        );
                         bb = (bb ^ opposite_side_attacks) & bb;
-                        bb = (bb ^ self.protected_pieces(color.oposite())) & bb;
+                        bb = (bb ^ self.protected_pieces(self.side_to_move.opposite())) & bb;
                     }
                     for m in bb {
                         moves.push(Move::new(sq, m, false, None));
@@ -136,8 +156,8 @@ impl Board {
         let mut protected_bb = Bitboard(0);
         for piece in PieceType::iter() {
             for sq in own[piece as usize] {
-                let bb = piece.pseudo_legal_moves(sq, Color::Black, self.all_pieces(), enemy)
-                    & self.black();
+                let bb = piece.pseudo_legal_moves(sq, color, self.all_pieces(), enemy)
+                    & self.pieces_combined(color);
                 protected_bb |= bb;
             }
         }
