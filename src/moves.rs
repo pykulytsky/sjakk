@@ -32,11 +32,23 @@ impl std::fmt::Display for Move {
         write!(
             f,
             "{}{}{}{}",
-            self.piece,
-            if self.capture.is_some() { "x" } else { "" },
+            if self.piece == PieceType::Pawn {
+                "".to_string()
+            } else {
+                format!("{}", self.piece)
+            },
+            if self.capture.is_some() {
+                if self.piece == PieceType::Pawn {
+                    format!("{}x", self.from.file())
+                } else {
+                    "x".to_string()
+                }
+            } else {
+                "".to_string()
+            },
             self.to,
             if let Some(promotion) = self.promotion {
-                format!("={promotion}")
+                format!("={promotion}").to_uppercase()
             } else {
                 "".to_string()
             }
