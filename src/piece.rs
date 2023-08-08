@@ -1,3 +1,5 @@
+use std::mem::transmute;
+
 use strum_macros::EnumIter;
 
 use crate::{
@@ -48,6 +50,11 @@ impl PieceType {
             PieceType::Queen => Queen::pseudo_legal_moves(square, color, occupied, own),
             PieceType::King => King::pseudo_legal_moves(square, color, occupied, own),
         }
+    }
+
+    #[inline]
+    pub fn from_index(i: usize) -> Self {
+        unsafe { transmute((i as u8) & 7) }
     }
 }
 

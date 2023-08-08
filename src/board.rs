@@ -2,9 +2,10 @@ use crate::{
     constants,
     moves::Move,
     parsers::fen::{self, FENParseError},
-    piece::{Pawn, PieceType},
+    piece::{Color, Pawn, PieceType},
+    rays::RAY_ATTACKS,
+    Bitboard, Square,
 };
-use crate::{piece::Color, Bitboard};
 use strum::IntoEnumIterator;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
@@ -93,6 +94,29 @@ impl Board {
         };
         let mut moves = vec![];
         if self.king_in_check() {
+            for piece in PieceType::iter() {
+                for sq in own_pieces[piece as usize] {
+                    let mut bb = piece.pseudo_legal_moves(
+                        sq,
+                        self.side_to_move,
+                        self.all_pieces(),
+                        own_combined,
+                    );
+
+                    if piece == PieceType::King {
+                        let opposite_side_attacks = self.opposite_side_attacks(
+                            self.pieces(self.side_to_move.opposite()),
+                            self.side_to_move.opposite(),
+                        );
+                        bb = (bb ^ opposite_side_attacks) & bb;
+                        bb = (bb ^ self.protected_pieces(self.side_to_move.opposite())) & bb;
+                    } else {
+                        bb = bb & self.attacks_to_king();
+                    }
+
+                    self.fill_move_list(&mut moves, sq, bb, piece);
+                }
+            }
         } else {
             for piece in PieceType::iter() {
                 for sq in own_pieces[piece as usize] {
@@ -110,13 +134,35 @@ impl Board {
                         bb = (bb ^ opposite_side_attacks) & bb;
                         bb = (bb ^ self.protected_pieces(self.side_to_move.opposite())) & bb;
                     }
-                    for m in bb {
-                        moves.push(Move::new(sq, m, false, None));
-                    }
+
+                    self.fill_move_list(&mut moves, sq, bb, piece);
+                    // for m in bb {
+                    //     moves.push(Move::new(sq, m, piece, None, None));
+                    // }
                 }
             }
         }
         moves
+    }
+
+    #[inline]
+    fn fill_move_list(
+        &self,
+        move_list: &mut Vec<Move>,
+        sq: Square,
+        moves: Bitboard,
+        piece: PieceType,
+    ) {
+        for m in moves {
+            let square_bitboard = Bitboard::from_square(m);
+            let target = self
+                .pieces(self.side_to_move.opposite())
+                .iter()
+                .enumerate()
+                .find(|(_, b)| b.0 & square_bitboard.0 != 0)
+                .map(|(i, _)| PieceType::from_index(i));
+            move_list.push(Move::new(sq, m, piece, target, None));
+        }
     }
 
     #[inline]
@@ -126,7 +172,7 @@ impl Board {
             for sq in self.white_pieces[piece as usize] {
                 for m in piece.pseudo_legal_moves(sq, Color::White, self.all_pieces(), self.white())
                 {
-                    moves.push(Move::new(sq, m, false, None));
+                    moves.push(Move::new(sq, m, piece, None, None));
                 }
             }
         }
@@ -140,7 +186,7 @@ impl Board {
             for sq in self.black_pieces[piece as usize] {
                 for m in piece.pseudo_legal_moves(sq, Color::Black, self.all_pieces(), self.black())
                 {
-                    moves.push(Move::new(sq, m, false, None));
+                    moves.push(Move::new(sq, m, piece, None, None));
                 }
             }
         }
@@ -164,11 +210,34 @@ impl Board {
         protected_bb
     }
 
-    pub fn make_move(&mut self) {
-        self.side_to_move = match self.side_to_move {
-            Color::White => Color::Black,
-            Color::Black => Color::White,
-        };
+    pub fn make_move(&mut self, m: Move) -> Result<(), ()> {
+        if self.pseudo_legal_moves().contains(&m) {
+            unsafe { self.make_move_unchecked(m) }
+
+            return Ok(());
+        } else {
+            return Err(());
+        }
+    }
+
+    pub unsafe fn make_move_unchecked(&mut self, m: Move) {
+        let from_bb = Bitboard(1_u64 << m.from.0);
+        let to_bb = Bitboard(1_u64 << m.to.0);
+        let from_to_bb = from_bb ^ to_bb;
+
+        match self.side_to_move {
+            Color::White => self.white_pieces[m.piece as usize] ^= from_to_bb,
+            Color::Black => self.black_pieces[m.piece as usize] ^= from_to_bb,
+        }
+
+        if let Some(captured_piece) = m.capture {
+            match self.side_to_move.opposite() {
+                Color::White => self.white_pieces[captured_piece as usize] ^= to_bb,
+                Color::Black => self.black_pieces[captured_piece as usize] ^= to_bb,
+            }
+        }
+
+        self.side_to_move = self.side_to_move.opposite();
     }
 
     #[inline]
@@ -189,8 +258,19 @@ impl Board {
         // Skip the [`PieceType::King`], since you can not check with king.
         for piece in PieceType::iter().take(5) {
             for sq in opposite_side[piece as usize] {
-                attacks_to_king_bitboard |= king_square
-                    & piece.pseudo_legal_moves(sq, color, self.all_pieces(), self.black());
+                let bb = piece.pseudo_legal_moves(sq, color, self.all_pieces(), self.black());
+                if piece != PieceType::Pawn && piece != PieceType::Knight {
+                    for ray in 0..7 {
+                        if RAY_ATTACKS[sq.0 as usize][ray] & bb.0 & king_square.0 != 0 {
+                            attacks_to_king_bitboard |= RAY_ATTACKS[sq.0 as usize][ray] & bb.0;
+                        }
+                    }
+                    // if king_square.0 & bb.0 > 0 {
+                    //     attacks_to_king_bitboard |= bb;
+                    // }
+                }
+                // attacks_to_king_bitboard |= king_square
+                //     & piece.pseudo_legal_moves(sq, color, self.all_pieces(), self.black());
             }
         }
 
@@ -208,7 +288,7 @@ impl Board {
     }
 
     #[inline]
-    fn opposite_side_attacks(
+    pub fn opposite_side_attacks(
         &self,
         opposite_side: [Bitboard; 6],
         opposite_color: Color,

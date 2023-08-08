@@ -4,17 +4,37 @@ use crate::{piece::PieceType, Square};
 pub struct Move {
     pub from: Square,
     pub to: Square,
-    pub capture: bool,
+    pub piece: PieceType,
+    pub capture: Option<PieceType>,
     pub promotion: Option<PieceType>,
 }
 
 impl Move {
-    pub fn new(from: Square, to: Square, capture: bool, promotion: Option<PieceType>) -> Self {
+    pub fn new(
+        from: Square,
+        to: Square,
+        piece: PieceType,
+        capture: Option<PieceType>,
+        promotion: Option<PieceType>,
+    ) -> Self {
         Self {
             from,
             to,
+            piece,
             capture,
             promotion,
         }
+    }
+}
+
+impl std::fmt::Display for Move {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}{}{}",
+            self.piece,
+            if self.capture.is_some() { "x" } else { "" },
+            self.to
+        )
     }
 }
