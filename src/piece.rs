@@ -13,6 +13,15 @@ pub enum Color {
     Black,
 }
 
+impl Color {
+    pub fn oposite(&self) -> Self {
+        match self {
+            Color::White => Color::Black,
+            Color::Black => Color::White,
+        }
+    }
+}
+
 #[derive(Debug, EnumIter, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum PieceType {
     Pawn,
@@ -86,17 +95,24 @@ impl Piece for Pawn {
             Color::Black => ((one_step & MASK_RANK[5]) >> 8) & !occupied.0,
         };
         let valid_moves = one_step | two_steps;
-        let (left_attack, right_attack) = match color {
-            Color::White => ((sq & CLEAR_FILE[0]) << 7, (sq & CLEAR_FILE[7]) << 9),
-            Color::Black => ((sq & CLEAR_FILE[7]) >> 7, (sq & CLEAR_FILE[0]) >> 9),
-        };
-        let pawn_attacks = left_attack | right_attack;
+        let pawn_attacks = Self::pawn_attacks(color, square);
         let enemy = occupied ^ own;
         let valid_attacks = pawn_attacks & enemy.0;
 
         let valid_moves = valid_moves | valid_attacks;
 
         valid_moves
+    }
+}
+
+impl Pawn {
+    pub fn pawn_attacks(color: Color, sq: Square) -> Bitboard {
+        let sq = Bitboard::from_square(sq);
+        let (left_attack, right_attack) = match color {
+            Color::White => ((sq & CLEAR_FILE[0]) << 7, (sq & CLEAR_FILE[7]) << 9),
+            Color::Black => ((sq & CLEAR_FILE[7]) >> 7, (sq & CLEAR_FILE[0]) >> 9),
+        };
+        left_attack | right_attack
     }
 }
 
