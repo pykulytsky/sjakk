@@ -136,9 +136,6 @@ impl Board {
                     }
 
                     self.fill_move_list(&mut moves, sq, bb, piece);
-                    // for m in bb {
-                    //     moves.push(Move::new(sq, m, piece, None, None));
-                    // }
                 }
             }
         }
@@ -213,13 +210,17 @@ impl Board {
     pub fn make_move(&mut self, m: Move) -> Result<(), ()> {
         if self.pseudo_legal_moves().contains(&m) {
             unsafe { self.make_move_unchecked(m) }
-
             return Ok(());
         } else {
             return Err(());
         }
     }
 
+    /// Updates all the bitboards, which are involved in move, updates side to move and moves list.
+    ///
+    /// # Safety
+    /// This method does not check if provided move is a valid move, it may break representation of
+    /// the game. Use it only with moves, received from [`Self::pseudo_legal_moves`]. Otherwise use [`Self::make_move`].
     pub unsafe fn make_move_unchecked(&mut self, m: Move) {
         let from_bb = Bitboard(1_u64 << m.from.0);
         let to_bb = Bitboard(1_u64 << m.to.0);
@@ -238,6 +239,7 @@ impl Board {
         }
 
         self.side_to_move = self.side_to_move.opposite();
+        self.move_list.push(m);
     }
 
     #[inline]
