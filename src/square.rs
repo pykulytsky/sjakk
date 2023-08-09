@@ -116,3 +116,33 @@ impl std::fmt::Display for Square {
         write!(f, "{}{}", self.file(), self.rank())
     }
 }
+
+#[derive(Debug)]
+pub struct SquareParseError;
+
+impl std::str::FromStr for Square {
+    type Err = SquareParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.len() < 2 {
+            return Err(SquareParseError);
+        }
+        let ch: Vec<char> = s.chars().collect();
+        match ch[0] {
+            'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' => {}
+            _ => {
+                return Err(SquareParseError);
+            }
+        }
+        match ch[1] {
+            '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' => {}
+            _ => {
+                return Err(SquareParseError);
+            }
+        }
+        Ok(Square::from_file_and_rank(
+            File::from_index((ch[0] as usize) - ('a' as usize)),
+            Rank::from_index((ch[1] as usize) - ('1' as usize)),
+        ))
+    }
+}

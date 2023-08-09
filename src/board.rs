@@ -1,5 +1,5 @@
 use crate::{
-    constants,
+    constants::{self, CLEAR_FILE},
     moves::Move,
     parsers::fen::{self, FENParseError},
     piece::{Color, Pawn, PieceType},
@@ -37,10 +37,41 @@ impl Board {
 
     pub fn from_fen(input: &str) -> Result<Self, FENParseError> {
         let parsed = fen::parse(input)?;
+
+        let mut move_list = vec![];
+        if let Some(square) = parsed.en_passant_target {
+            match square.rank() {
+                // White pawn moved 2 squares up.
+                Rank::Rank3 => {
+                    let from_square = Square::from_file_and_rank(square.file(), Rank::Rank2);
+                    let to_square = Square::from_file_and_rank(square.file(), Rank::Rank4);
+                    move_list.push(Move {
+                        from: from_square,
+                        to: to_square,
+                        piece: PieceType::Pawn,
+                        capture: None,
+                        promotion: None,
+                    });
+                }
+                // Black pawn moved 2 squares up.
+                Rank::Rank6 => {
+                    let from_square = Square::from_file_and_rank(square.file(), Rank::Rank7);
+                    let to_square = Square::from_file_and_rank(square.file(), Rank::Rank5);
+                    move_list.push(Move {
+                        from: from_square,
+                        to: to_square,
+                        piece: PieceType::Pawn,
+                        capture: None,
+                        promotion: None,
+                    });
+                }
+                _ => unreachable!(),
+            }
+        }
         Ok(Self {
             white_pieces: parsed.pieces[Color::White as usize],
             black_pieces: parsed.pieces[Color::Black as usize],
-            move_list: vec![],
+            move_list,
             side_to_move: parsed.active_color,
             status: Status::Ongoing,
         })
@@ -139,6 +170,7 @@ impl Board {
                 }
             }
         }
+        self.possible_en_passant();
         moves
     }
 
@@ -331,6 +363,52 @@ impl Board {
         }
 
         bb
+    }
+
+    pub fn possible_en_passant(&self) -> (Option<Move>, Option<Move>) {
+        if let Some(m) = self.move_list.last() {
+            let prev_move_side = self.side_to_move.opposite();
+            if prev_move_side == Color::White
+                && m.piece == PieceType::Pawn
+                && m.from.rank() == Rank::Rank2
+                && m.to.rank() == Rank::Rank4
+            {
+                for p in self.black_pieces[PieceType::Pawn as usize] {
+                    let bb = Bitboard::from_square(p);
+
+                    let (left_attack, right_attack) =
+                        ((bb & CLEAR_FILE[0]) >> 1, (bb & CLEAR_FILE[7]) << 1);
+                    if left_attack & Bitboard::from_square(m.to) != 0 {
+                        println!("black pawn {p} can en passant to the left");
+                    }
+
+                    if right_attack & Bitboard::from_square(m.to) != 0 {
+                        println!("black pawn {p} can en passant to the right");
+                    }
+                }
+            }
+            if prev_move_side == Color::Black
+                && m.piece == PieceType::Pawn
+                && m.from.rank() == Rank::Rank7
+                && m.to.rank() == Rank::Rank5
+            {
+                for p in self.white_pieces[PieceType::Pawn as usize] {
+                    let bb = Bitboard::from_square(p);
+
+                    let (right_attack, left_attack) =
+                        ((bb & CLEAR_FILE[7]) << 1, (bb & CLEAR_FILE[0]) >> 1);
+
+                    if left_attack & Bitboard::from_square(m.to) != 0 {
+                        println!("white pawn {p} can en passant to the left");
+                    }
+
+                    if right_attack & Bitboard::from_square(m.to) != 0 {
+                        println!("white pawn {p} can en passant to the right");
+                    }
+                }
+            }
+        }
+        (None, None)
     }
 }
 

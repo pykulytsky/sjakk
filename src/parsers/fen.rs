@@ -1,4 +1,4 @@
-use std::num::ParseIntError;
+use std::{num::ParseIntError, str::FromStr};
 
 use crate::{
     piece::{Color, PieceType},
@@ -38,13 +38,13 @@ pub fn parse(fen: &str) -> Result<FEN, FENParseError> {
     let active_color = parse_active_color(parts.next().unwrap())?;
     // Skip castling rights and posible en passant for now.
     let _ = parts.next();
-    let _ = parts.next();
+    let en_passant_target = parse_en_passant_target(parts.next().unwrap());
     let (halfmove_clock, fullmove_number) = parse_moves(parts.take(2))?;
 
     Ok(FEN {
         pieces,
         active_color,
-        en_passant_target: None,
+        en_passant_target,
         halfmove_clock,
         fullmove_number,
     })
@@ -164,4 +164,11 @@ fn parse_piece_placement(notation: &str) -> Result<[[Bitboard; 6]; 2], FENParseE
         .for_each(|p| *p = Bitboard(p.0.swap_bytes()));
 
     Ok(pieces_bb)
+}
+
+fn parse_en_passant_target(input: &str) -> Option<Square> {
+    match input {
+        "-" => None,
+        _ => Square::from_str(input).ok(),
+    }
 }
