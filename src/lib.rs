@@ -10,4 +10,6 @@ pub mod utils;
 
 pub use bitboard::Bitboard;
 pub use constants::Direction;
+pub use moves::Move;
+pub use piece::{Color, Piece, PieceType};
 pub use square::{File, Rank, Square};

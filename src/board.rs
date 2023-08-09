@@ -170,7 +170,8 @@ impl Board {
                 }
             }
         }
-        self.possible_en_passant();
+        // TODO take checks end pins into account.
+        moves.extend(self.possible_en_passant());
         moves
     }
 
@@ -365,7 +366,8 @@ impl Board {
         bb
     }
 
-    pub fn possible_en_passant(&self) -> (Option<Move>, Option<Move>) {
+    pub fn possible_en_passant(&self) -> Vec<Move> {
+        let en_passants = vec![];
         if let Some(m) = self.move_list.last() {
             let prev_move_side = self.side_to_move.opposite();
             if prev_move_side == Color::White
@@ -408,7 +410,7 @@ impl Board {
                 }
             }
         }
-        (None, None)
+        en_passants
     }
 }
 
