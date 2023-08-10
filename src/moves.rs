@@ -11,6 +11,13 @@ pub struct Move {
     pub move_type: MoveType,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq)]
+pub enum CastlingSide {
+    KingSide,
+    QueenSide,
+    Both,
+}
+
 impl Move {
     pub fn new(
         from: Square,
@@ -85,7 +92,7 @@ impl Move {
                     }
                 }
             }
-            MoveType::Castling => todo!(),
+            MoveType::Castling { side } => todo!(),
         }
     }
 }
@@ -95,7 +102,7 @@ pub enum MoveType {
     Quiet,
     Promotion { promotion_to: PieceType },
     EnPassant { captures_on: Square },
-    Castling,
+    Castling { side: CastlingSide },
 }
 
 impl Display for Move {

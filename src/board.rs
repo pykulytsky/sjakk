@@ -1,6 +1,8 @@
+use std::str::FromStr;
+
 use crate::{
     constants::{self, CLEAR_FILE},
-    moves::{Move, MoveType},
+    moves::{CastlingSide, Move, MoveType},
     parsers::fen::{self, FENParseError},
     piece::{Color, Pawn, PieceType},
     rays::RAY_ATTACKS,
@@ -362,7 +364,6 @@ impl Board {
                     let (left_attack, right_attack) =
                         ((bb & CLEAR_FILE[0]) >> 1, (bb & CLEAR_FILE[7]) << 1);
                     if left_attack & Bitboard::from_square(m.to) != 0 {
-                        println!("black pawn {p} can en passant to the left");
                         let to: Square = Bitboard(left_attack.0 >> 8).into();
                         let captures_on: Square = Bitboard(left_attack.0).into();
                         en_passants.push(Move::new(
@@ -375,8 +376,6 @@ impl Board {
                     }
 
                     if right_attack & Bitboard::from_square(m.to) != 0 {
-                        println!("black pawn {p} can en passant to the right");
-
                         let to: Square = Bitboard(right_attack.0 >> 8).into();
                         let captures_on: Square = Bitboard(right_attack.0).into();
                         en_passants.push(Move::new(
@@ -401,8 +400,6 @@ impl Board {
                         ((bb & CLEAR_FILE[7]) << 1, (bb & CLEAR_FILE[0]) >> 1);
 
                     if left_attack & Bitboard::from_square(m.to) != 0 {
-                        println!("white pawn {p} can en passant to the left");
-
                         let to: Square = Bitboard(left_attack.0 << 8).into();
                         let captures_on: Square = Bitboard(left_attack.0).into();
                         en_passants.push(Move::new(
@@ -429,6 +426,65 @@ impl Board {
             }
         }
         en_passants
+    }
+
+    pub fn available_castling(&self) -> Option<CastlingSide> {
+        if self.king_in_check() {
+            return None;
+        }
+
+        let original_square = match self.side_to_move {
+            Color::White => Square::from_str("e1").unwrap(),
+            Color::Black => Square::from_str("e8").unwrap(),
+        };
+        let king_on_original_square = self
+            .move_list
+            .iter()
+            .filter(|m| m.piece == PieceType::King && m.from == original_square)
+            .count()
+            == 0;
+        let a_rook_square = match self.side_to_move {
+            Color::White => Square::from_str("a1").unwrap(),
+            Color::Black => Square::from_str("a8").unwrap(),
+        };
+        let h_rook_square = match self.side_to_move {
+            Color::White => Square::from_str("h1").unwrap(),
+            Color::Black => Square::from_str("h8").unwrap(),
+        };
+        let a_rook_on_original_square = self
+            .move_list
+            .iter()
+            .filter(|m| m.piece == PieceType::King && m.from == a_rook_square)
+            .count()
+            == 0;
+        let h_rook_on_original_square = self
+            .move_list
+            .iter()
+            .filter(|m| m.piece == PieceType::King && m.from == h_rook_square)
+            .count()
+            == 0;
+
+        let pieces = self.pieces_combined(self.side_to_move)
+            | self.opposite_side_attacks(
+                self.pieces(self.side_to_move.opposite()),
+                self.side_to_move.opposite(),
+            );
+        let king_side = match self.side_to_move {
+            Color::White => (pieces.0 >> 5).trailing_zeros() == 2,
+            Color::Black => (pieces.0.swap_bytes() >> 5).trailing_zeros() == 2,
+        } && h_rook_on_original_square;
+        let queen_side = match self.side_to_move {
+            Color::White => (pieces.0 >> 5).trailing_zeros() == 3,
+            Color::Black => (pieces.0.swap_bytes() >> 1).trailing_zeros() == 3,
+        } && a_rook_on_original_square;
+
+        match (king_on_original_square, king_side, queen_side) {
+            (true, true, true) => Some(CastlingSide::Both),
+            (true, true, false) => Some(CastlingSide::KingSide),
+            (true, false, true) => Some(CastlingSide::QueenSide),
+            (true, false, false) => None,
+            (false, _, _) => None,
+        }
     }
 }
 
