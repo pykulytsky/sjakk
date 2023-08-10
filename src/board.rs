@@ -307,12 +307,7 @@ impl Board {
                             attacks_to_king_bitboard |= RAY_ATTACKS[sq.0 as usize][ray] & bb.0;
                         }
                     }
-                    // if king_square.0 & bb.0 > 0 {
-                    //     attacks_to_king_bitboard |= bb;
-                    // }
                 }
-                // attacks_to_king_bitboard |= king_square
-                //     & piece.pseudo_legal_moves(sq, color, self.all_pieces(), self.black());
             }
         }
 
@@ -474,7 +469,7 @@ impl Board {
             Color::Black => (pieces.0.swap_bytes() >> 5).trailing_zeros() == 2,
         } && h_rook_on_original_square;
         let queen_side = match self.side_to_move {
-            Color::White => (pieces.0 >> 5).trailing_zeros() == 3,
+            Color::White => (pieces.0 >> 1).trailing_zeros() == 3,
             Color::Black => (pieces.0.swap_bytes() >> 1).trailing_zeros() == 3,
         } && a_rook_on_original_square;
 
