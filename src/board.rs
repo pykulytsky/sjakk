@@ -1,6 +1,6 @@
 use crate::{
     constants::{self, CLEAR_FILE},
-    moves::Move,
+    moves::{Move, MoveType},
     parsers::fen::{self, FENParseError},
     piece::{Color, Pawn, PieceType},
     rays::RAY_ATTACKS,
@@ -50,7 +50,7 @@ impl Board {
                         to: to_square,
                         piece: PieceType::Pawn,
                         capture: None,
-                        promotion: None,
+                        move_type: MoveType::Quiet,
                     });
                 }
                 // Black pawn moved 2 squares up.
@@ -62,7 +62,7 @@ impl Board {
                         to: to_square,
                         piece: PieceType::Pawn,
                         capture: None,
-                        promotion: None,
+                        move_type: MoveType::Quiet,
                     });
                 }
                 _ => unreachable!(),
@@ -191,47 +191,52 @@ impl Board {
                 .enumerate()
                 .find(|(_, b)| b.0 & square_bitboard.0 != 0)
                 .map(|(i, _)| PieceType::from_index(i));
-            let promotion = if piece == PieceType::Pawn
+            if piece == PieceType::Pawn
                 && ((m.rank() == Rank::Rank8 && self.side_to_move == Color::White)
                     || (m.rank() == Rank::Rank1 && self.side_to_move == Color::Black))
             {
-                move_list.push(Move::new(sq, m, piece, target, Some(PieceType::Rook)));
-                move_list.push(Move::new(sq, m, piece, target, Some(PieceType::Bishop)));
-                move_list.push(Move::new(sq, m, piece, target, Some(PieceType::Knight)));
-                Some(PieceType::Queen)
-            } else {
-                None
-            };
-            move_list.push(Move::new(sq, m, piece, target, promotion));
-        }
-    }
+                move_list.push(Move::new(
+                    sq,
+                    m,
+                    piece,
+                    target,
+                    MoveType::Promotion {
+                        promotion_to: PieceType::Rook,
+                    },
+                ));
 
-    #[inline]
-    pub fn pseudo_legal_moves_white(&self) -> Vec<Move> {
-        let mut moves = vec![];
-        for piece in PieceType::iter() {
-            for sq in self.white_pieces[piece as usize] {
-                for m in piece.pseudo_legal_moves(sq, Color::White, self.all_pieces(), self.white())
-                {
-                    moves.push(Move::new(sq, m, piece, None, None));
-                }
-            }
-        }
-        moves
-    }
+                move_list.push(Move::new(
+                    sq,
+                    m,
+                    piece,
+                    target,
+                    MoveType::Promotion {
+                        promotion_to: PieceType::Bishop,
+                    },
+                ));
 
-    #[inline]
-    pub fn pseudo_legal_moves_black(&self) -> Vec<Move> {
-        let mut moves = vec![];
-        for piece in PieceType::iter() {
-            for sq in self.black_pieces[piece as usize] {
-                for m in piece.pseudo_legal_moves(sq, Color::Black, self.all_pieces(), self.black())
-                {
-                    moves.push(Move::new(sq, m, piece, None, None));
-                }
+                move_list.push(Move::new(
+                    sq,
+                    m,
+                    piece,
+                    target,
+                    MoveType::Promotion {
+                        promotion_to: PieceType::Knight,
+                    },
+                ));
+
+                move_list.push(Move::new(
+                    sq,
+                    m,
+                    piece,
+                    target,
+                    MoveType::Promotion {
+                        promotion_to: PieceType::Queen,
+                    },
+                ));
             }
+            move_list.push(Move::new(sq, m, piece, target, MoveType::Quiet));
         }
-        moves
     }
 
     #[inline]
@@ -266,35 +271,11 @@ impl Board {
     /// This method does not check if provided move is a valid move, it may break representation of
     /// the game. Use it only with moves, received from [`Self::pseudo_legal_moves`]. Otherwise use [`Self::make_move`].
     pub unsafe fn make_move_unchecked(&mut self, m: Move) {
-        let from_bb = Bitboard(1_u64 << m.from.0);
-        let to_bb = Bitboard(1_u64 << m.to.0);
-        let from_to_bb = from_bb ^ to_bb;
-
-        if let Some(promotion) = m.promotion {
-            match self.side_to_move {
-                Color::White => {
-                    self.white_pieces[m.piece as usize] ^= from_bb;
-                    self.white_pieces[promotion as usize] ^= to_bb;
-                }
-                Color::Black => {
-                    self.black_pieces[m.piece as usize] ^= from_bb;
-                    self.black_pieces[promotion as usize] ^= to_bb;
-                }
-            }
-        } else {
-            match self.side_to_move {
-                Color::White => self.white_pieces[m.piece as usize] ^= from_to_bb,
-                Color::Black => self.black_pieces[m.piece as usize] ^= from_to_bb,
-            }
-        }
-
-        if let Some(captured_piece) = m.capture {
-            match self.side_to_move.opposite() {
-                Color::White => self.white_pieces[captured_piece as usize] ^= to_bb,
-                Color::Black => self.black_pieces[captured_piece as usize] ^= to_bb,
-            }
-        }
-
+        m.update_position(
+            &mut self.white_pieces,
+            &mut self.black_pieces,
+            self.side_to_move,
+        );
         self.side_to_move = self.side_to_move.opposite();
         self.move_list.push(m);
     }
@@ -367,7 +348,7 @@ impl Board {
     }
 
     pub fn possible_en_passant(&self) -> Vec<Move> {
-        let en_passants = vec![];
+        let mut en_passants = vec![];
         if let Some(m) = self.move_list.last() {
             let prev_move_side = self.side_to_move.opposite();
             if prev_move_side == Color::White
@@ -382,10 +363,29 @@ impl Board {
                         ((bb & CLEAR_FILE[0]) >> 1, (bb & CLEAR_FILE[7]) << 1);
                     if left_attack & Bitboard::from_square(m.to) != 0 {
                         println!("black pawn {p} can en passant to the left");
+                        let to: Square = Bitboard(left_attack.0 >> 8).into();
+                        let captures_on: Square = Bitboard(left_attack.0).into();
+                        en_passants.push(Move::new(
+                            p,
+                            to,
+                            PieceType::Pawn,
+                            Some(PieceType::Pawn),
+                            MoveType::EnPassant { captures_on },
+                        ))
                     }
 
                     if right_attack & Bitboard::from_square(m.to) != 0 {
                         println!("black pawn {p} can en passant to the right");
+
+                        let to: Square = Bitboard(right_attack.0 >> 8).into();
+                        let captures_on: Square = Bitboard(right_attack.0).into();
+                        en_passants.push(Move::new(
+                            p,
+                            to,
+                            PieceType::Pawn,
+                            Some(PieceType::Pawn),
+                            MoveType::EnPassant { captures_on },
+                        ))
                     }
                 }
             }
@@ -402,10 +402,28 @@ impl Board {
 
                     if left_attack & Bitboard::from_square(m.to) != 0 {
                         println!("white pawn {p} can en passant to the left");
+
+                        let to: Square = Bitboard(left_attack.0 << 8).into();
+                        let captures_on: Square = Bitboard(left_attack.0).into();
+                        en_passants.push(Move::new(
+                            p,
+                            to,
+                            PieceType::Pawn,
+                            Some(PieceType::Pawn),
+                            MoveType::EnPassant { captures_on },
+                        ))
                     }
 
                     if right_attack & Bitboard::from_square(m.to) != 0 {
-                        println!("white pawn {p} can en passant to the right");
+                        let to: Square = Bitboard(right_attack.0 << 8).into();
+                        let captures_on: Square = Bitboard(right_attack.0).into();
+                        en_passants.push(Move::new(
+                            p,
+                            to,
+                            PieceType::Pawn,
+                            Some(PieceType::Pawn),
+                            MoveType::EnPassant { captures_on },
+                        ))
                     }
                 }
             }
