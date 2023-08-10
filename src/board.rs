@@ -120,7 +120,7 @@ impl Board {
     }
 
     #[inline]
-    pub fn pseudo_legal_moves(&self) -> Vec<Move> {
+    pub fn legal_moves(&self) -> Vec<Move> {
         let (own_pieces, own_combined) = match self.side_to_move {
             Color::White => (self.white_pieces, self.white()),
             Color::Black => (self.black_pieces, self.black()),
@@ -137,7 +137,7 @@ impl Board {
                     );
 
                     if piece == PieceType::King {
-                        let opposite_side_attacks = self.opposite_side_attacks(
+                        let opposite_side_attacks = self.attacks(
                             self.pieces(self.side_to_move.opposite()),
                             self.side_to_move.opposite(),
                         );
@@ -160,7 +160,7 @@ impl Board {
                         own_combined,
                     );
                     if piece == PieceType::King {
-                        let opposite_side_attacks = self.opposite_side_attacks(
+                        let opposite_side_attacks = self.attacks(
                             self.pieces(self.side_to_move.opposite()),
                             self.side_to_move.opposite(),
                         );
@@ -170,6 +170,85 @@ impl Board {
 
                     self.fill_move_list(&mut moves, sq, bb, piece);
                 }
+            }
+            match (self.side_to_move, self.available_castling()) {
+                (Color::White, Some(castling)) => match castling {
+                    CastlingSide::KingSide => {
+                        moves.push(Move::new(
+                            Square::from_str("e1").unwrap(),
+                            Square::from_str("g1").unwrap(),
+                            PieceType::King,
+                            None,
+                            MoveType::Castling { side: castling },
+                        ));
+                    }
+                    CastlingSide::QueenSide => {
+                        moves.push(Move::new(
+                            Square::from_str("e1").unwrap(),
+                            Square::from_str("c1").unwrap(),
+                            PieceType::King,
+                            None,
+                            MoveType::Castling { side: castling },
+                        ));
+                    }
+                    CastlingSide::Both => {
+                        moves.push(Move::new(
+                            Square::from_str("e1").unwrap(),
+                            Square::from_str("g1").unwrap(),
+                            PieceType::King,
+                            None,
+                            MoveType::Castling {
+                                side: CastlingSide::KingSide,
+                            },
+                        ));
+                        moves.push(Move::new(
+                            Square::from_str("e1").unwrap(),
+                            Square::from_str("c1").unwrap(),
+                            PieceType::King,
+                            None,
+                            MoveType::Castling {
+                                side: CastlingSide::QueenSide,
+                            },
+                        ));
+                    }
+                },
+                (Color::Black, Some(castling)) => match castling {
+                    CastlingSide::KingSide => {
+                        moves.push(Move::new(
+                            Square::from_str("e8").unwrap(),
+                            Square::from_str("g8").unwrap(),
+                            PieceType::King,
+                            None,
+                            MoveType::Castling { side: castling },
+                        ));
+                    }
+                    CastlingSide::QueenSide => {
+                        moves.push(Move::new(
+                            Square::from_str("e8").unwrap(),
+                            Square::from_str("c8").unwrap(),
+                            PieceType::King,
+                            None,
+                            MoveType::Castling { side: castling },
+                        ));
+                    }
+                    CastlingSide::Both => {
+                        moves.push(Move::new(
+                            Square::from_str("e8").unwrap(),
+                            Square::from_str("g8").unwrap(),
+                            PieceType::King,
+                            None,
+                            MoveType::Castling { side: castling },
+                        ));
+                        moves.push(Move::new(
+                            Square::from_str("e8").unwrap(),
+                            Square::from_str("c8").unwrap(),
+                            PieceType::King,
+                            None,
+                            MoveType::Castling { side: castling },
+                        ));
+                    }
+                },
+                _ => {}
             }
         }
         // TODO take checks end pins into account.
@@ -259,7 +338,7 @@ impl Board {
     }
 
     pub fn make_move(&mut self, m: Move) -> Result<(), ()> {
-        if self.pseudo_legal_moves().contains(&m) {
+        if self.legal_moves().contains(&m) {
             unsafe { self.make_move_unchecked(m) }
             return Ok(());
         } else {
@@ -289,20 +368,26 @@ impl Board {
             Color::White => (
                 self.white_pieces[PieceType::King as usize],
                 self.black_pieces,
-                Color::White,
+                Color::Black,
             ),
             Color::Black => (
                 self.black_pieces[PieceType::King as usize],
                 self.white_pieces,
-                Color::Black,
+                Color::White,
             ),
         };
+        // dbg!(king_square, opposite_side, color);
         // Skip the [`PieceType::King`], since you can not check with king.
         for piece in PieceType::iter().take(5) {
             for sq in opposite_side[piece as usize] {
-                let bb = piece.pseudo_legal_moves(sq, color, self.all_pieces(), self.black());
                 if piece != PieceType::Pawn && piece != PieceType::Knight {
-                    for ray in 0..7 {
+                    let bb = piece.pseudo_legal_moves(
+                        sq,
+                        color,
+                        self.all_pieces(),
+                        self.pieces_combined(color),
+                    );
+                    for ray in 0..8 {
                         if RAY_ATTACKS[sq.0 as usize][ray] & bb.0 & king_square.0 != 0 {
                             attacks_to_king_bitboard |= RAY_ATTACKS[sq.0 as usize][ray] & bb.0;
                         }
@@ -325,11 +410,7 @@ impl Board {
     }
 
     #[inline]
-    pub fn opposite_side_attacks(
-        &self,
-        opposite_side: [Bitboard; 6],
-        opposite_color: Color,
-    ) -> Bitboard {
+    pub fn attacks(&self, opposite_side: [Bitboard; 6], opposite_color: Color) -> Bitboard {
         let mut bb = Bitboard(0);
 
         for sq in opposite_side[PieceType::Pawn as usize] {
@@ -460,7 +541,7 @@ impl Board {
             == 0;
 
         let pieces = self.pieces_combined(self.side_to_move)
-            | self.opposite_side_attacks(
+            | self.attacks(
                 self.pieces(self.side_to_move.opposite()),
                 self.side_to_move.opposite(),
             );

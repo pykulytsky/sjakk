@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, str::FromStr};
 
 use crate::{piece::PieceType, Bitboard, Color, Square};
 
@@ -92,7 +92,40 @@ impl Move {
                     }
                 }
             }
-            MoveType::Castling { side } => todo!(),
+            MoveType::Castling { side } => match side_to_move {
+                Color::White => {
+                    white_pieces[self.piece as usize] ^= from_to_bb;
+                    match side {
+                        CastlingSide::KingSide => {
+                            let rook = Bitboard::from_square(Square::from_str("h1").unwrap())
+                                | Bitboard::from_square(Square::from_str("f1").unwrap());
+                            white_pieces[PieceType::Rook as usize] ^= rook;
+                        }
+                        CastlingSide::QueenSide => {
+                            let rook = Bitboard::from_square(Square::from_str("a1").unwrap())
+                                | Bitboard::from_square(Square::from_str("d1").unwrap());
+                            white_pieces[PieceType::Rook as usize] ^= rook;
+                        }
+                        CastlingSide::Both => unreachable!(),
+                    }
+                }
+                Color::Black => {
+                    black_pieces[self.piece as usize] ^= from_to_bb;
+                    match side {
+                        CastlingSide::KingSide => {
+                            let rook = Bitboard::from_square(Square::from_str("h8").unwrap())
+                                | Bitboard::from_square(Square::from_str("f8").unwrap());
+                            black_pieces[PieceType::Rook as usize] ^= rook;
+                        }
+                        CastlingSide::QueenSide => {
+                            let rook = Bitboard::from_square(Square::from_str("a8").unwrap())
+                                | Bitboard::from_square(Square::from_str("d8").unwrap());
+                            black_pieces[PieceType::Rook as usize] ^= rook;
+                        }
+                        CastlingSide::Both => unreachable!(),
+                    }
+                }
+            },
         }
     }
 }
@@ -107,26 +140,40 @@ pub enum MoveType {
 
 impl Display for Move {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let piece = if self.piece == PieceType::Pawn {
-            "".to_string()
-        } else {
-            format!("{}", self.piece)
-        };
-        let capture = if self.capture.is_some() {
-            if self.piece == PieceType::Pawn {
-                format!("{}x", self.from.file())
-            } else {
-                "x".to_string()
+        if let MoveType::Castling { side } = self.move_type {
+            match side {
+                CastlingSide::KingSide => {
+                    write!(f, "O-O")?;
+                }
+                CastlingSide::QueenSide => {
+                    write!(f, "O-O-O")?;
+                }
+                CastlingSide::Both => unreachable!(),
             }
         } else {
-            "".to_string()
-        };
-        let promotion = if let MoveType::Promotion { promotion_to } = self.move_type {
-            format!("={}", promotion_to)
-        } else {
-            "".to_string()
-        };
+            let piece = if self.piece == PieceType::Pawn {
+                "".to_string()
+            } else {
+                format!("{}", self.piece)
+            };
+            let capture = if self.capture.is_some() {
+                if self.piece == PieceType::Pawn {
+                    format!("{}x", self.from.file())
+                } else {
+                    "x".to_string()
+                }
+            } else {
+                "".to_string()
+            };
+            let promotion = if let MoveType::Promotion { promotion_to } = self.move_type {
+                format!("={}", promotion_to)
+            } else {
+                "".to_string()
+            };
 
-        write!(f, "{}{}{}{}", piece, capture, self.to, promotion)
+            write!(f, "{}{}{}{}", piece, capture, self.to, promotion)?;
+        }
+
+        Ok(())
     }
 }

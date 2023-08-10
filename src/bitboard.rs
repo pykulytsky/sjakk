@@ -18,7 +18,7 @@ use crate::{constants::Direction, File, Rank, Square};
 /// assert_eq!(all_pawns, 0b0000000011111111000000000000000000000000000000001111111100000000);
 /// ```
 ///
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Bitboard(pub u64);
 
 impl std::ops::BitOr for Bitboard {
@@ -198,6 +198,7 @@ impl From<u64> for Bitboard {
 
 impl Display for Bitboard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\n")?;
         for row in (0..8).rev() {
             write!(f, "{}", row + 1)?;
             for i in 0..8 {
@@ -294,5 +295,11 @@ impl Iterator for Bitboard {
             *self ^= Bitboard::from_square(lsb);
             Some(lsb)
         }
+    }
+}
+
+impl std::fmt::Debug for Bitboard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
     }
 }
