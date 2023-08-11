@@ -136,6 +136,7 @@ impl Board {
                         own_combined,
                     );
 
+                    println!("{piece} {sq} {:?}", self.pinned(sq));
                     if piece == PieceType::King {
                         let opposite_side_attacks = self.attacks(
                             self.pieces(self.side_to_move.opposite()),
@@ -144,7 +145,7 @@ impl Board {
                         bb = (bb ^ opposite_side_attacks) & bb;
                         bb = (bb ^ self.protected_pieces(self.side_to_move.opposite())) & bb;
                     } else {
-                        bb = bb & self.attacks_to_king();
+                        bb = bb & self.attacks_to_king(self.all_pieces(), false);
                     }
 
                     self.fill_move_list(&mut moves, sq, bb, piece);
@@ -159,6 +160,9 @@ impl Board {
                         self.all_pieces(),
                         own_combined,
                     );
+                    if let Some(pin) = self.pinned(sq) {
+                        bb &= pin;
+                    }
                     if piece == PieceType::King {
                         let opposite_side_attacks = self.attacks(
                             self.pieces(self.side_to_move.opposite()),
@@ -362,7 +366,7 @@ impl Board {
     }
 
     #[inline]
-    pub fn attacks_to_king(&self) -> Bitboard {
+    pub fn attacks_to_king(&self, all_pieces: Bitboard, with_attacker: bool) -> Bitboard {
         let mut attacks_to_king_bitboard = Bitboard(0);
         let (king_square, opposite_side, color) = match self.side_to_move {
             Color::White => (
@@ -384,12 +388,18 @@ impl Board {
                     let bb = piece.pseudo_legal_moves(
                         sq,
                         color,
-                        self.all_pieces(),
+                        all_pieces,
                         self.pieces_combined(color),
                     );
                     for ray in 0..8 {
                         if RAY_ATTACKS[sq.0 as usize][ray] & bb.0 & king_square.0 != 0 {
-                            attacks_to_king_bitboard |= RAY_ATTACKS[sq.0 as usize][ray] & bb.0;
+                            let attacks = if with_attacker {
+                                (RAY_ATTACKS[sq.0 as usize][ray] & bb.0)
+                                    | Bitboard::from_square(sq).0
+                            } else {
+                                RAY_ATTACKS[sq.0 as usize][ray] & bb.0
+                            };
+                            attacks_to_king_bitboard |= attacks
                         }
                     }
                 }
@@ -406,7 +416,21 @@ impl Board {
             Color::Black => self.black_pieces[PieceType::King as usize],
         };
 
-        (king.0 & self.attacks_to_king().0) > 1
+        (king.0 & self.attacks_to_king(self.all_pieces(), false).0) > 1
+    }
+
+    #[inline]
+    pub fn pinned(&self, square: Square) -> Option<Bitboard> {
+        let king = match self.side_to_move {
+            Color::White => self.white_pieces[PieceType::King as usize],
+            Color::Black => self.black_pieces[PieceType::King as usize],
+        };
+        let attacks = self.attacks_to_king(self.all_pieces() ^ Bitboard::from_square(square), true);
+
+        if attacks != 0 {
+            return Some(attacks);
+        }
+        None
     }
 
     #[inline]

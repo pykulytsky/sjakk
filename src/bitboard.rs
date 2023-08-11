@@ -215,6 +215,13 @@ impl Display for Bitboard {
 
 impl Bitboard {
     /// Creates bitboard with `1` on the given square, with rest of the board filled with `0`.
+    ///
+    /// ```
+    /// use sjakk::Bitboard;
+    /// let bb = Bitboard::from_square_number(10);
+    /// assert_eq!(bb.0.trailing_zeros(), 10);
+    /// assert_eq!(bb.0.leading_zeros(), 53);
+    /// ```
     pub fn from_square_number(square: u8) -> Self {
         Self(1_u64 << square)
     }
@@ -224,11 +231,22 @@ impl Bitboard {
     }
 
     /// Creates empty board (filled with zeros).
+    /// ```
+    /// use sjakk::Bitboard;
+    /// let bb = Bitboard::empty();
+    /// assert_eq!(bb, 0);
+    /// ```
     pub fn empty() -> Self {
         Self(0)
     }
 
-    /// Creates board filled with ones.
+    /// Creates board, filled with ones.
+    ///
+    /// ```
+    /// use sjakk::Bitboard;
+    /// let bb = Bitboard::universe();
+    /// assert_eq!(bb, u64::MAX);
+    /// ```
     pub fn universe() -> Self {
         Self(u64::MAX)
     }
@@ -242,14 +260,14 @@ impl Bitboard {
         let mask_h_file = 0x7f7f7f7f7f7f7f7f_u64;
 
         match direction {
-            Direction::North => self.0 << 8,
-            Direction::NorthEast => (self.0 << 9) & mask_a_file,
-            Direction::East => (self.0 << 1) & mask_a_file,
-            Direction::SouthEast => (self.0 >> 1) & mask_a_file,
-            Direction::South => self.0 >> 8,
-            Direction::SouthWest => (self.0 >> 9) & mask_h_file,
-            Direction::West => (self.0 >> 1) & mask_h_file,
-            Direction::NorthWest => (self.0 << 7) & mask_h_file,
+            Direction::North => self.0 = self.0 << 8,
+            Direction::NorthEast => self.0 = (self.0 << 9) & mask_a_file,
+            Direction::East => self.0 = (self.0 << 1) & mask_a_file,
+            Direction::SouthEast => self.0 = (self.0 >> 7) & mask_a_file,
+            Direction::South => self.0 = self.0 >> 8,
+            Direction::SouthWest => self.0 = (self.0 >> 9) & mask_h_file,
+            Direction::West => self.0 = (self.0 >> 1) & mask_h_file,
+            Direction::NorthWest => self.0 = (self.0 << 7) & mask_h_file,
         };
     }
 
@@ -301,5 +319,31 @@ impl Iterator for Bitboard {
 impl std::fmt::Debug for Bitboard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_ste_by_direction() {
+        let mut bb = Bitboard::from_square(Square(10));
+        bb.one_step_by_direction(Direction::East);
+        assert_eq!(bb.lsb_square(), Square(11));
+        bb.one_step_by_direction(Direction::West);
+        assert_eq!(bb.lsb_square(), Square(10));
+        bb.one_step_by_direction(Direction::North);
+        assert_eq!(bb.lsb_square(), Square(18));
+        bb.one_step_by_direction(Direction::South);
+        assert_eq!(bb.lsb_square(), Square(10));
+        bb.one_step_by_direction(Direction::NorthEast);
+        assert_eq!(bb.lsb_square(), Square(19));
+        bb.one_step_by_direction(Direction::SouthWest);
+        assert_eq!(bb.lsb_square(), Square(10));
+        bb.one_step_by_direction(Direction::NorthWest);
+        assert_eq!(bb.lsb_square(), Square(17));
+        bb.one_step_by_direction(Direction::SouthEast);
+        assert_eq!(bb.lsb_square(), Square(10));
     }
 }
