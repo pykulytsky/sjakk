@@ -24,6 +24,15 @@ impl Color {
     }
 }
 
+impl ToString for Color {
+    fn to_string(&self) -> String {
+        match self {
+            Color::White => "w".to_string(),
+            Color::Black => "b".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, EnumIter, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum PieceType {
     Pawn,

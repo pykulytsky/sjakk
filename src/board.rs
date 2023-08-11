@@ -3,7 +3,7 @@ use std::str::FromStr;
 use crate::{
     constants::{self, CLEAR_FILE},
     moves::{CastlingSide, Move, MoveType},
-    parsers::fen::{self, FENParseError},
+    parsers::fen::{self, FENParseError, FEN},
     piece::{Color, Pawn, PieceType},
     rays::RAY_ATTACKS,
     Bitboard, Rank, Square,
@@ -12,7 +12,7 @@ use strum::IntoEnumIterator;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub enum Status {
-    Checkmate,
+    Checkmate(Color),
     Stalemate,
     Ongoing,
 }
@@ -39,44 +39,7 @@ impl Board {
 
     pub fn from_fen(input: &str) -> Result<Self, FENParseError> {
         let parsed = fen::parse(input)?;
-
-        let mut move_list = vec![];
-        if let Some(square) = parsed.en_passant_target {
-            match square.rank() {
-                // White pawn moved 2 squares up.
-                Rank::Rank3 => {
-                    let from_square = Square::from_file_and_rank(square.file(), Rank::Rank2);
-                    let to_square = Square::from_file_and_rank(square.file(), Rank::Rank4);
-                    move_list.push(Move {
-                        from: from_square,
-                        to: to_square,
-                        piece: PieceType::Pawn,
-                        capture: None,
-                        move_type: MoveType::Quiet,
-                    });
-                }
-                // Black pawn moved 2 squares up.
-                Rank::Rank6 => {
-                    let from_square = Square::from_file_and_rank(square.file(), Rank::Rank7);
-                    let to_square = Square::from_file_and_rank(square.file(), Rank::Rank5);
-                    move_list.push(Move {
-                        from: from_square,
-                        to: to_square,
-                        piece: PieceType::Pawn,
-                        capture: None,
-                        move_type: MoveType::Quiet,
-                    });
-                }
-                _ => unreachable!(),
-            }
-        }
-        Ok(Self {
-            white_pieces: parsed.pieces[Color::White as usize],
-            black_pieces: parsed.pieces[Color::Black as usize],
-            move_list,
-            side_to_move: parsed.active_color,
-            status: Status::Ongoing,
-        })
+        Ok(Self::from(parsed))
     }
 
     #[inline]
@@ -120,7 +83,7 @@ impl Board {
     }
 
     #[inline]
-    pub fn legal_moves(&self) -> Vec<Move> {
+    pub fn legal_moves(&mut self) -> Vec<Move> {
         let (own_pieces, own_combined) = match self.side_to_move {
             Color::White => (self.white_pieces, self.white()),
             Color::Black => (self.black_pieces, self.black()),
@@ -136,7 +99,6 @@ impl Board {
                         own_combined,
                     );
 
-                    println!("{piece} {sq} {:?}", self.pinned(sq));
                     if piece == PieceType::King {
                         let opposite_side_attacks = self.attacks(
                             self.pieces(self.side_to_move.opposite()),
@@ -255,8 +217,9 @@ impl Board {
                 _ => {}
             }
         }
-        // TODO take checks end pins into account.
         moves.extend(self.possible_en_passant());
+        self.set_status(moves.len());
+
         moves
     }
 
@@ -380,7 +343,6 @@ impl Board {
                 Color::White,
             ),
         };
-        // dbg!(king_square, opposite_side, color);
         // Skip the [`PieceType::King`], since you can not check with king.
         for piece in PieceType::iter().take(5) {
             for sq in opposite_side[piece as usize] {
@@ -421,10 +383,6 @@ impl Board {
 
     #[inline]
     pub fn pinned(&self, square: Square) -> Option<Bitboard> {
-        let king = match self.side_to_move {
-            Color::White => self.white_pieces[PieceType::King as usize],
-            Color::Black => self.black_pieces[PieceType::King as usize],
-        };
         let attacks = self.attacks_to_king(self.all_pieces() ^ Bitboard::from_square(square), true);
 
         if attacks != 0 {
@@ -528,6 +486,13 @@ impl Board {
         en_passants
     }
 
+    fn set_status(&mut self, num_of_legal_moves: usize) {
+        match (self.king_in_check(), num_of_legal_moves) {
+            (true, 0) => self.status = Status::Checkmate(self.side_to_move.opposite()),
+            (false, 0) => self.status = Status::Stalemate,
+            _ => {}
+        }
+    }
     pub fn available_castling(&self) -> Option<CastlingSide> {
         if self.king_in_check() {
             return None;
@@ -609,6 +574,48 @@ impl Default for Board {
             ],
             move_list: vec![],
             side_to_move: Color::White,
+            status: Status::Ongoing,
+        }
+    }
+}
+
+impl From<FEN> for Board {
+    fn from(fen: FEN) -> Self {
+        let mut move_list = vec![];
+        if let Some(square) = fen.en_passant_target {
+            match square.rank() {
+                // White pawn moved 2 squares up.
+                Rank::Rank3 => {
+                    let from_square = Square::from_file_and_rank(square.file(), Rank::Rank2);
+                    let to_square = Square::from_file_and_rank(square.file(), Rank::Rank4);
+                    move_list.push(Move {
+                        from: from_square,
+                        to: to_square,
+                        piece: PieceType::Pawn,
+                        capture: None,
+                        move_type: MoveType::Quiet,
+                    });
+                }
+                // Black pawn moved 2 squares up.
+                Rank::Rank6 => {
+                    let from_square = Square::from_file_and_rank(square.file(), Rank::Rank7);
+                    let to_square = Square::from_file_and_rank(square.file(), Rank::Rank5);
+                    move_list.push(Move {
+                        from: from_square,
+                        to: to_square,
+                        piece: PieceType::Pawn,
+                        capture: None,
+                        move_type: MoveType::Quiet,
+                    });
+                }
+                _ => unreachable!(),
+            }
+        }
+        Self {
+            white_pieces: fen.pieces[Color::White as usize],
+            black_pieces: fen.pieces[Color::Black as usize],
+            move_list,
+            side_to_move: fen.active_color,
             status: Status::Ongoing,
         }
     }
