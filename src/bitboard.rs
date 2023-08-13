@@ -196,6 +196,45 @@ impl From<u64> for Bitboard {
     }
 }
 
+impl std::ops::BitOr<Bitboard> for u64 {
+    type Output = u64;
+    fn bitor(self, rhs: Bitboard) -> Self::Output {
+        self | rhs.0
+    }
+}
+
+impl std::ops::BitAnd<Bitboard> for u64 {
+    type Output = u64;
+    fn bitand(self, rhs: Bitboard) -> Self::Output {
+        self & rhs.0
+    }
+}
+
+impl std::ops::BitXor<Bitboard> for u64 {
+    type Output = u64;
+    fn bitxor(self, rhs: Bitboard) -> Self::Output {
+        self ^ rhs.0
+    }
+}
+
+impl std::ops::BitOrAssign<Bitboard> for u64 {
+    fn bitor_assign(&mut self, rhs: Bitboard) {
+        *self |= rhs.0;
+    }
+}
+
+impl std::ops::BitAndAssign<Bitboard> for u64 {
+    fn bitand_assign(&mut self, rhs: Bitboard) {
+        *self &= rhs.0;
+    }
+}
+
+impl std::ops::BitXorAssign<Bitboard> for u64 {
+    fn bitxor_assign(&mut self, rhs: Bitboard) {
+        *self ^= rhs.0;
+    }
+}
+
 impl Display for Bitboard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "\n")?;
@@ -254,21 +293,21 @@ impl Bitboard {
     /// Move bitboard by 1 bit in [`Direction`].
     /// Use only with single bitsets.
     #[inline]
-    pub fn one_step_by_direction(&mut self, direction: Direction) {
+    pub fn one_step_by_direction(&self, direction: Direction) -> Bitboard {
         assert!(self.0.count_ones() == 1); // is single bitset
         let mask_a_file = 0xfefefefefefefefe_u64;
         let mask_h_file = 0x7f7f7f7f7f7f7f7f_u64;
 
         match direction {
-            Direction::North => self.0 = self.0 << 8,
-            Direction::NorthEast => self.0 = (self.0 << 9) & mask_a_file,
-            Direction::East => self.0 = (self.0 << 1) & mask_a_file,
-            Direction::SouthEast => self.0 = (self.0 >> 7) & mask_a_file,
-            Direction::South => self.0 = self.0 >> 8,
-            Direction::SouthWest => self.0 = (self.0 >> 9) & mask_h_file,
-            Direction::West => self.0 = (self.0 >> 1) & mask_h_file,
-            Direction::NorthWest => self.0 = (self.0 << 7) & mask_h_file,
-        };
+            Direction::North => Bitboard(self.0 << 8),
+            Direction::NorthEast => Bitboard((self.0 << 9) & mask_a_file),
+            Direction::East => Bitboard((self.0 << 1) & mask_a_file),
+            Direction::SouthEast => Bitboard((self.0 >> 7) & mask_a_file),
+            Direction::South => Bitboard(self.0 >> 8),
+            Direction::SouthWest => Bitboard((self.0 >> 9) & mask_h_file),
+            Direction::West => Bitboard((self.0 >> 1) & mask_h_file),
+            Direction::NorthWest => Bitboard((self.0 << 7) & mask_h_file),
+        }
     }
 
     /// Returns true if this [`Bitboard`] is not filled with zeros.
@@ -328,22 +367,28 @@ mod tests {
 
     #[test]
     fn one_ste_by_direction() {
-        let mut bb = Bitboard::from_square(Square(10));
-        bb.one_step_by_direction(Direction::East);
+        let bb = Bitboard::from_square(Square(10));
+        let bb = bb.one_step_by_direction(Direction::East);
         assert_eq!(bb.lsb_square(), Square(11));
-        bb.one_step_by_direction(Direction::West);
+        let bb = bb.one_step_by_direction(Direction::West);
         assert_eq!(bb.lsb_square(), Square(10));
-        bb.one_step_by_direction(Direction::North);
+        let bb = bb.one_step_by_direction(Direction::North);
         assert_eq!(bb.lsb_square(), Square(18));
-        bb.one_step_by_direction(Direction::South);
+        let bb = bb.one_step_by_direction(Direction::South);
         assert_eq!(bb.lsb_square(), Square(10));
-        bb.one_step_by_direction(Direction::NorthEast);
+        let bb = bb.one_step_by_direction(Direction::NorthEast);
         assert_eq!(bb.lsb_square(), Square(19));
-        bb.one_step_by_direction(Direction::SouthWest);
+        let bb = bb.one_step_by_direction(Direction::SouthWest);
         assert_eq!(bb.lsb_square(), Square(10));
-        bb.one_step_by_direction(Direction::NorthWest);
+        let bb = bb.one_step_by_direction(Direction::NorthWest);
         assert_eq!(bb.lsb_square(), Square(17));
-        bb.one_step_by_direction(Direction::SouthEast);
+        let bb = bb.one_step_by_direction(Direction::SouthEast);
         assert_eq!(bb.lsb_square(), Square(10));
+    }
+
+    #[test]
+    fn iterate_over_squares() {
+        let bb = Bitboard(0xFF);
+        assert_eq!(bb.into_iter().count(), 8);
     }
 }

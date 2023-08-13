@@ -33,6 +33,8 @@ impl ToString for Color {
     }
 }
 
+/// Represents all possible pieces in chess, can be used in [`Board`] or [`Position`] to index
+/// required bitboard by piece type.
 #[derive(Debug, EnumIter, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum PieceType {
     Pawn,
@@ -44,6 +46,7 @@ pub enum PieceType {
 }
 
 impl PieceType {
+    /// Generates pseudo legal moves, for given piece.
     pub fn pseudo_legal_moves(
         &self,
         square: Square,
@@ -100,6 +103,14 @@ impl std::fmt::Display for PieceType {
 }
 
 pub trait Piece {
+    /// Generates pseudo legal moves.
+    /// The main difference betweeen legal and pseudo-legal move is that pseudo-legal moves don't
+    /// take into consideration checks an pins on the board. To generate legal moves use
+    /// [`Board::legal_moves`].
+    /// In case of pawns, this method generates available moves and attacks, but don't generate
+    /// en-passant, since we need to know previous move.
+    /// (https://www.chessprogramming.org/Pseudo-Legal_Move)[More information about pseudo-legal
+    /// moves]
     fn pseudo_legal_moves(
         square: Square,
         color: Color,
@@ -149,16 +160,17 @@ impl Pawn {
     }
 }
 
-fn sliding_piece_pseudo_moves(
+/// Generates pseudo-legal moves for sliding pieces (Rook, Bishop and Queen).
+fn slideing_piece_pseudo_legal_moves(
     sq: usize,
     occupied: Bitboard,
     own: Bitboard,
-    step: usize,
+    diag_attacks: usize,
 ) -> Bitboard {
     let mut sliding_attacks = 0;
 
     for i in 0..4 {
-        let i = i * 2 + step;
+        let i = i * 2 + diag_attacks;
         let mut attacks = RAY_ATTACKS[sq][i];
         let blocker = attacks & occupied.0;
         if blocker != 0 {
@@ -186,7 +198,7 @@ impl Piece for Rook {
         own: Bitboard,
     ) -> Bitboard {
         let sq = square.0 as usize;
-        sliding_piece_pseudo_moves(sq, occupied, own, 0)
+        slideing_piece_pseudo_legal_moves(sq, occupied, own, 0)
     }
 }
 
@@ -200,7 +212,7 @@ impl Piece for Bishop {
         own: Bitboard,
     ) -> Bitboard {
         let sq = square.0 as usize;
-        sliding_piece_pseudo_moves(sq, occupied, own, 1)
+        slideing_piece_pseudo_legal_moves(sq, occupied, own, 1)
     }
 }
 
@@ -214,8 +226,8 @@ impl Piece for Queen {
         own: Bitboard,
     ) -> Bitboard {
         let sq = square.0 as usize;
-        sliding_piece_pseudo_moves(sq, occupied, own, 0)
-            | sliding_piece_pseudo_moves(sq, occupied, own, 1)
+        slideing_piece_pseudo_legal_moves(sq, occupied, own, 0)
+            | slideing_piece_pseudo_legal_moves(sq, occupied, own, 1)
     }
 }
 
@@ -282,5 +294,147 @@ impl Piece for King {
         let valid_moves = valid_moves & !own.0;
 
         Bitboard(valid_moves)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::constants;
+
+    use super::*;
+
+    #[test]
+    fn pawn_pseudo_legal_moves() {
+        let moves = Pawn::pseudo_legal_moves(
+            Square(9),
+            Color::White,
+            Bitboard(constants::ALL_PIECES),
+            Bitboard(constants::WHITE_PIECES),
+        );
+
+        let available_squares: Vec<Square> = moves.into_iter().collect();
+        assert_eq!(available_squares.len(), 2);
+        assert_eq!(available_squares[0].0, 17);
+        assert_eq!(available_squares[1].0, 25);
+
+        let moves = Pawn::pseudo_legal_moves(
+            Square(35),
+            Color::White,
+            Bitboard(constants::ALL_PIECES),
+            Bitboard(constants::WHITE_PIECES),
+        );
+
+        let available_squares: Vec<Square> = moves.into_iter().collect();
+        assert_eq!(available_squares.len(), 1);
+        assert_eq!(available_squares[0].0, 43);
+    }
+
+    #[test]
+    fn pawn_attacks() {
+        let occupied = Bitboard::from_square(Square(44));
+        let moves = Pawn::pseudo_legal_moves(Square(35), Color::White, occupied, Bitboard(0));
+
+        let available_squares: Vec<Square> = moves.into_iter().collect();
+
+        assert_eq!(available_squares.len(), 2);
+        assert_eq!(available_squares[0].0, 43);
+        assert_eq!(available_squares[1].0, 44);
+    }
+
+    #[test]
+    fn pawn_blocked() {
+        let occupied = Bitboard::from_square(Square(43));
+        let moves = Pawn::pseudo_legal_moves(Square(35), Color::White, occupied, Bitboard(0));
+
+        assert_eq!(moves.into_iter().count(), 0);
+    }
+
+    #[test]
+    fn sliding_attacks() {
+        let moves = slideing_piece_pseudo_legal_moves(28, Bitboard(0), Bitboard(0), 0);
+        assert_eq!(moves.0.count_ones(), 14);
+    }
+
+    #[test]
+    fn sliding_attacks_on_diags() {
+        let moves = slideing_piece_pseudo_legal_moves(28, Bitboard(0), Bitboard(0), 1);
+        assert_eq!(moves.0.count_ones(), 13);
+    }
+
+    #[test]
+    fn sliding_attacks_with_friendly_blockers() {
+        let north_blocker =
+            Bitboard::from_square_number(28).one_step_by_direction(crate::Direction::North);
+        let south_blocker =
+            Bitboard::from_square_number(28).one_step_by_direction(crate::Direction::South);
+        let west_blocker =
+            Bitboard::from_square_number(28).one_step_by_direction(crate::Direction::West);
+        let east_blocker =
+            Bitboard::from_square_number(28).one_step_by_direction(crate::Direction::East);
+        let own = north_blocker | south_blocker | west_blocker | east_blocker;
+        let moves = slideing_piece_pseudo_legal_moves(28, own, own, 0);
+        assert_eq!(moves.0.count_ones(), 0);
+    }
+
+    #[test]
+    fn slideing_attacks_with_enemy_blockers() {
+        let north_blocker =
+            Bitboard::from_square_number(28).one_step_by_direction(crate::Direction::North);
+        let south_blocker =
+            Bitboard::from_square_number(28).one_step_by_direction(crate::Direction::South);
+        let west_blocker =
+            Bitboard::from_square_number(28).one_step_by_direction(crate::Direction::West);
+        let east_blocker =
+            Bitboard::from_square_number(28).one_step_by_direction(crate::Direction::East);
+
+        let enemy = north_blocker | south_blocker | west_blocker | east_blocker;
+        let moves = slideing_piece_pseudo_legal_moves(28, enemy, Bitboard(0), 0);
+        assert_eq!(moves.0.count_ones(), 4);
+    }
+
+    #[test]
+    fn sliding_attacks_with_friendly_blockers_on_diags() {
+        let north_blocker =
+            Bitboard::from_square_number(28).one_step_by_direction(crate::Direction::NorthEast);
+        let south_blocker =
+            Bitboard::from_square_number(28).one_step_by_direction(crate::Direction::SouthEast);
+        let west_blocker =
+            Bitboard::from_square_number(28).one_step_by_direction(crate::Direction::NorthWest);
+        let east_blocker =
+            Bitboard::from_square_number(28).one_step_by_direction(crate::Direction::SouthWest);
+        let own = north_blocker | south_blocker | west_blocker | east_blocker;
+        let moves = slideing_piece_pseudo_legal_moves(28, own, own, 1);
+        assert_eq!(moves.0.count_ones(), 0);
+    }
+
+    #[test]
+    fn slideing_attacks_with_enemy_blockers_on_diags() {
+        let north_blocker =
+            Bitboard::from_square_number(28).one_step_by_direction(crate::Direction::NorthEast);
+        let south_blocker =
+            Bitboard::from_square_number(28).one_step_by_direction(crate::Direction::SouthEast);
+        let west_blocker =
+            Bitboard::from_square_number(28).one_step_by_direction(crate::Direction::NorthWest);
+        let east_blocker =
+            Bitboard::from_square_number(28).one_step_by_direction(crate::Direction::SouthWest);
+
+        let enemy = north_blocker | south_blocker | west_blocker | east_blocker;
+        let moves = slideing_piece_pseudo_legal_moves(28, enemy, Bitboard(0), 1);
+        assert_eq!(moves.0.count_ones(), 4);
+    }
+
+    #[test]
+    fn knight_pseudo_legal_moves() {
+        let moves_on_empty_board =
+            Knight::pseudo_legal_moves(Square(28), Color::White, Bitboard(0), Bitboard(0));
+        assert_eq!(moves_on_empty_board.0.count_ones(), 8);
+
+        let moves_on_occupied_board = Knight::pseudo_legal_moves(
+            Square(28),
+            Color::White,
+            moves_on_empty_board,
+            moves_on_empty_board,
+        );
+        assert_eq!(moves_on_occupied_board.0.count_ones(), 0);
     }
 }
