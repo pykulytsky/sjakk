@@ -17,7 +17,7 @@ pub struct FEN {
     pub fullmove_number: u16,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Eq)]
 pub enum FENParseError {
     #[error("not enough parts in FEN notation")]
     NotEnoughParts,
@@ -37,10 +37,11 @@ pub fn parse(fen: &str) -> Result<FEN, FENParseError> {
 
 impl FromStr for FEN {
     type Err = FENParseError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let fen = s.trim().replace("/", "");
+    fn from_str(fen: &str) -> Result<Self, Self::Err> {
         let mut parts = fen.split(" ");
-        assert!(fen.split(" ").clone().count() == 6);
+        if fen.split(" ").clone().count() != 6 {
+            return Err(FENParseError::NotEnoughParts);
+        }
 
         let pieces = parse_piece_placement(parts.next().unwrap())?;
         let active_color = parse_active_color(parts.next().unwrap())?;
@@ -159,19 +160,25 @@ fn parse_piece_placement(notation: &str) -> Result<[[Bitboard; 6]; 2], FENParseE
                     pieces_bb[Color::White as usize][PieceType::King as usize] |=
                         Bitboard(1_u64 << offset);
                 }
+                '/' => {
+                    if offset % 8 != 0 {
+                        return Err(FENParseError::PiecePlacement);
+                    }
+                }
+
                 _ => return Err(FENParseError::PiecePlacement),
             }
-            offset += 1;
+            if n != '/' {
+                offset += 1;
+            }
         }
     }
 
-    pieces_bb[0]
-        .iter_mut()
-        .for_each(|p| *p = Bitboard(p.0.swap_bytes()));
-    pieces_bb[1]
-        .iter_mut()
-        .for_each(|p| *p = Bitboard(p.0.swap_bytes()));
-
+    for i in 0..2 {
+        pieces_bb[i]
+            .iter_mut()
+            .for_each(|p| *p = Bitboard(p.0.swap_bytes()));
+    }
     Ok(pieces_bb)
 }
 
@@ -188,8 +195,8 @@ impl From<Board> for FEN {
             pieces: [board.white_pieces, board.black_pieces],
             active_color: board.side_to_move,
             en_passant_target: None,
-            halfmove_clock: board.move_list.len() as u16,
-            fullmove_number: (board.move_list.len() / 2) as u16,
+            halfmove_clock: board.halfmoves,
+            fullmove_number: board.move_list.len() as u16 / 2,
         }
     }
 }
@@ -294,5 +301,61 @@ impl ToString for FEN {
             self.halfmove_clock,
             self.fullmove_number
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn it_works() {
+        let starting_position = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let fen = parse(starting_position);
+        assert!(fen.is_ok());
+        let fen = fen.unwrap();
+        assert_eq!(fen.active_color, Color::White);
+        assert_eq!(fen.halfmove_clock, 0);
+        assert_eq!(fen.fullmove_number, 1);
+        assert_eq!(fen.en_passant_target, None);
+    }
+
+    #[test]
+    fn valid_position() {
+        let starting_position = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let fen = parse(starting_position).unwrap();
+        let default_board = Board::default();
+        assert_eq!(
+            fen.pieces,
+            [default_board.white_pieces, default_board.black_pieces]
+        );
+    }
+
+    #[test]
+    fn en_passant_target() {
+        let fen = "rnbqkbnr/1pp1pppp/p7/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3";
+        let fen = parse(fen).unwrap();
+
+        assert!(fen.en_passant_target.is_some());
+        let en_passant = fen.en_passant_target.unwrap();
+        assert_eq!(en_passant, Square::from_str("d6").unwrap());
+    }
+
+    #[test]
+    fn not_enough_parts() {
+        let fen = "rnbqkbnr/1pp1pppp/p7/3pP3/8/8/PPPP1PPP/RNBQKBNR w d6 0 3";
+        let fen = parse(fen);
+        assert!(fen.is_err());
+        assert_eq!(fen.unwrap_err(), FENParseError::NotEnoughParts);
+    }
+
+    #[test]
+    fn not_enough_pieces() {
+        let fen = "rnbnr/1pp1pppp/p7/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3";
+        let fen = parse(fen);
+
+        assert!(fen.is_err());
+        assert_eq!(fen.unwrap_err(), FENParseError::PiecePlacement);
     }
 }

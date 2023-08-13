@@ -26,7 +26,6 @@ pub const fn ray_attacks() -> [[u64; 8]; 64] {
 #[inline]
 pub const fn ray_attacks_diag(sq: usize) -> (u64, u64) {
     let maindia = 0x8040201008040201_u64;
-
     let diag = (8 * (sq as isize & 7)).wrapping_sub(sq as isize & 56);
     let north = -diag & (diag >> 31);
     let south = diag & (-diag >> 31);

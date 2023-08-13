@@ -15,7 +15,14 @@ use strum::IntoEnumIterator;
 pub enum Status {
     Checkmate(Color),
     Stalemate,
+    Draw(DrawReason),
     Ongoing,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+pub enum DrawReason {
+    Halfmoves,
+    Repetition,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq)]
@@ -23,6 +30,7 @@ pub struct Board {
     pub white_pieces: [Bitboard; 6],
     pub black_pieces: [Bitboard; 6],
     pub move_list: Vec<Move>,
+    pub halfmoves: u16,
     pub side_to_move: Color,
     pub status: Status,
 }
@@ -33,6 +41,7 @@ impl Board {
             white_pieces,
             black_pieces,
             move_list: vec![],
+            halfmoves: 0,
             side_to_move: Color::White,
             status: Status::Ongoing,
         }
@@ -336,6 +345,13 @@ impl Board {
     /// This method does not check if provided move is a valid move, it may break representation of
     /// the game. Use it only with moves, received from [`Self::pseudo_legal_moves`]. Otherwise use [`Self::make_move`].
     pub unsafe fn make_move_unchecked(&mut self, m: Move) {
+        if m.capture.is_none() && m.piece != PieceType::Pawn {
+            self.halfmoves += 1;
+
+            if self.halfmoves == 100 {
+                self.status = Status::Draw(DrawReason::Halfmoves);
+            }
+        }
         m.update_position(
             &mut self.white_pieces,
             &mut self.black_pieces,
@@ -721,6 +737,7 @@ impl Default for Board {
                 Bitboard(constants::BLACK_KING),
             ],
             move_list: vec![],
+            halfmoves: 0,
             side_to_move: Color::White,
             status: Status::Ongoing,
         }
@@ -763,8 +780,13 @@ impl From<FEN> for Board {
             white_pieces: fen.pieces[Color::White as usize],
             black_pieces: fen.pieces[Color::Black as usize],
             move_list,
+            halfmoves: fen.halfmove_clock,
             side_to_move: fen.active_color,
-            status: Status::Ongoing,
+            status: if fen.halfmove_clock < 100 {
+                Status::Ongoing
+            } else {
+                Status::Draw(DrawReason::Halfmoves)
+            },
         }
     }
 }
@@ -888,12 +910,49 @@ impl Iterator for IntoIter {
         let m = if let Some(m) = moves.iter().find(|m| m.capture == Some(PieceType::King)) {
             m.to_owned()
         } else {
-            moves.choose(&mut rng).unwrap().to_owned()
+            let captures: Vec<&Move> = moves.iter().filter(|m| m.capture.is_some()).collect();
+            if captures.len() != 0 {
+                captures.choose(&mut rng).unwrap().to_owned().to_owned()
+            } else {
+                moves.choose(&mut rng).unwrap().to_owned()
+            }
         };
         let _ = unsafe { self.board.make_move_unchecked(m) };
         Some(Position {
             white_pieces: self.board.white_pieces,
             black_pieces: self.board.black_pieces,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn halfmoves_rule() {
+        let board =
+            Board::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 100 1").unwrap();
+        assert_eq!(board.status, Status::Draw(DrawReason::Halfmoves));
+    }
+
+    #[test]
+    fn combined_pieces() {
+        let board = Board::default();
+        assert_eq!(board.white().0, 0xFFFF);
+        assert_eq!(board.black().0, 0xFFFF_u64.swap_bytes());
+        assert_eq!(board.all_pieces().0, 0xFFFF | 0xFFFF_u64.swap_bytes());
+    }
+
+    #[test]
+    fn legal_moves_in_starting_position() {
+        let mut board = Board::default();
+        let moves = board.legal_moves();
+        assert_eq!(moves.len(), 20);
+        assert_eq!(board.side_to_move, Color::White);
+        let _ = board.make_move(moves[0]);
+        let moves = board.legal_moves();
+        assert_eq!(moves.len(), 20);
+        assert_eq!(board.side_to_move, Color::Black);
     }
 }

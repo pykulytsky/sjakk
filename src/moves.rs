@@ -2,7 +2,7 @@ use std::{fmt::Display, str::FromStr};
 
 use crate::{piece::PieceType, Bitboard, Color, Square};
 
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Move {
     pub from: Square,
     pub to: Square,
@@ -134,9 +134,9 @@ impl Move {
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq)]
 pub enum MoveType {
     Quiet,
-    Promotion { promotion_to: PieceType },
     EnPassant { captures_on: Square },
     Castling { side: CastlingSide },
+    Promotion { promotion_to: PieceType },
 }
 
 impl Display for Move {
