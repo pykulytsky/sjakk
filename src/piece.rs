@@ -65,6 +65,23 @@ impl PieceType {
     pub fn from_index(i: usize) -> Self {
         unsafe { transmute((i as u8) & 7) }
     }
+
+    pub fn unicode(&self, color: Color) -> &str {
+        match (color, self) {
+            (Color::White, PieceType::Pawn) => "♙",
+            (Color::White, PieceType::Rook) => "♖",
+            (Color::White, PieceType::Knight) => "♘",
+            (Color::White, PieceType::Bishop) => "♗",
+            (Color::White, PieceType::Queen) => "♕",
+            (Color::White, PieceType::King) => "♔",
+            (Color::Black, PieceType::Pawn) => "♟︎",
+            (Color::Black, PieceType::Rook) => "♜",
+            (Color::Black, PieceType::Knight) => "♞",
+            (Color::Black, PieceType::Bishop) => "♝",
+            (Color::Black, PieceType::Queen) => "♛",
+            (Color::Black, PieceType::King) => "♚",
+        }
+    }
 }
 
 impl std::fmt::Display for PieceType {

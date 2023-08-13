@@ -276,6 +276,10 @@ impl ToString for FEN {
                 offset += 1;
             }
         }
+
+        if offset != 0 {
+            pieces_placement += offset.to_string().as_str();
+        }
         let en_passant_target = match self.en_passant_target {
             Some(sq) => sq.to_string(),
             None => "-".to_string(),

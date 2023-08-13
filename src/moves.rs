@@ -59,6 +59,7 @@ impl Move {
                 }
             }
             MoveType::Promotion { promotion_to } => {
+                assert!(promotion_to != PieceType::King);
                 match side_to_move {
                     Color::White => {
                         white_pieces[self.piece as usize] ^= from_bb;
