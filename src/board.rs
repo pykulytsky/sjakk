@@ -533,11 +533,21 @@ impl Board {
                             & if attacks_to_king.1 {
                                 Bitboard(0)
                             } else {
-                                attacks_to_king.0
+                                if attacks_to_king.0 == 0 {
+                                    Bitboard::universe()
+                                } else {
+                                    if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
+                                        Bitboard(0)
+                                    } else {
+                                        Bitboard::universe()
+                                    }
+                                }
                             };
 
                         if let Some(pin) = self.pinned(p) {
-                            left_attack &= pin;
+                            if Bitboard::from_square(to) & pin == 0 {
+                                left_attack &= pin;
+                            }
                         }
                         if left_attack.0 != 0 {
                             en_passants.push(Move::new(
@@ -559,11 +569,21 @@ impl Board {
                             & if attacks_to_king.1 {
                                 Bitboard(0)
                             } else {
-                                attacks_to_king.0
+                                if attacks_to_king.0 == 0 {
+                                    Bitboard::universe()
+                                } else {
+                                    if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
+                                        Bitboard(0)
+                                    } else {
+                                        Bitboard::universe()
+                                    }
+                                }
                             };
 
                         if let Some(pin) = self.pinned(p) {
-                            right_attack &= pin;
+                            if Bitboard::from_square(to) & pin == 0 {
+                                right_attack &= pin;
+                            }
                         }
                         if right_attack.0 != 0 {
                             en_passants.push(Move::new(
@@ -592,15 +612,26 @@ impl Board {
                         let to: Square = Bitboard(left_attack.0 << 8).into();
                         let captures_on: Square = Bitboard(left_attack.0).into();
                         let attacks_to_king = self.attacks_to_king(self.all_pieces(), true);
+
                         left_attack = left_attack
                             & if attacks_to_king.1 {
                                 Bitboard(0)
                             } else {
-                                attacks_to_king.0
+                                if attacks_to_king.0 == 0 {
+                                    Bitboard::universe()
+                                } else {
+                                    if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
+                                        Bitboard(0)
+                                    } else {
+                                        Bitboard::universe()
+                                    }
+                                }
                             };
 
                         if let Some(pin) = self.pinned(p) {
-                            left_attack &= pin;
+                            if Bitboard::from_square(to) & pin == 0 {
+                                left_attack &= pin;
+                            }
                         }
                         if left_attack.0 != 0 {
                             en_passants.push(Move::new(
@@ -622,11 +653,20 @@ impl Board {
                             & if attacks_to_king.1 {
                                 Bitboard(0)
                             } else {
-                                attacks_to_king.0
+                                if attacks_to_king.0 == 0 {
+                                    Bitboard::universe()
+                                } else {
+                                    if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
+                                        Bitboard(0)
+                                    } else {
+                                        Bitboard::universe()
+                                    }
+                                }
                             };
-
                         if let Some(pin) = self.pinned(p) {
-                            right_attack &= pin;
+                            if Bitboard::from_square(to) & pin == 0 {
+                                right_attack &= pin;
+                            }
                         }
                         if right_attack.0 != 0 {
                             en_passants.push(Move::new(
@@ -680,7 +720,7 @@ impl Board {
         let a_rook_on_original_square = self
             .move_list
             .iter()
-            .filter(|m| m.piece == PieceType::King && m.from == a_rook_square)
+            .filter(|m| m.piece == PieceType::Rook && m.from == a_rook_square)
             .count()
             == 0
             && (self.pieces(self.side_to_move)[PieceType::Rook as usize]
@@ -689,7 +729,7 @@ impl Board {
         let h_rook_on_original_square = self
             .move_list
             .iter()
-            .filter(|m| m.piece == PieceType::King && m.from == h_rook_square)
+            .filter(|m| m.piece == PieceType::Rook && m.from == h_rook_square)
             .count()
             == 0
             && (self.pieces(self.side_to_move)[PieceType::Rook as usize]
@@ -940,6 +980,69 @@ mod tests {
     }
 
     #[test]
+    fn en_passant_target() {
+        let board =
+            Board::from_fen("rnbqkbnr/p1p1pppp/1p6/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3")
+                .unwrap();
+        assert_eq!(board.move_list.len(), 1);
+        assert_eq!(board.move_list[0].piece, PieceType::Pawn);
+        assert_eq!(board.move_list[0].from, Square::from_str("d7").unwrap());
+        assert_eq!(board.move_list[0].to, Square::from_str("d5").unwrap());
+        let moves = board.available_en_passant();
+        assert!(moves
+            .iter()
+            .find(|m| m.move_type
+                == MoveType::EnPassant {
+                    captures_on: Square::from_str("d5").unwrap()
+                })
+            .is_some())
+    }
+
+    #[test]
+    fn en_passant_under_pin() {
+        let board = Board::from_fen("3kq3/8/8/4Pp2/8/8/8/4K3 w - f6 0 1").unwrap();
+        let moves = board.available_en_passant();
+
+        assert!(board.pinned(Square::from_str("e5").unwrap()).is_some());
+        assert!(moves
+            .iter()
+            .find(|m| m.move_type
+                == MoveType::EnPassant {
+                    captures_on: Square::from_str("f5").unwrap()
+                })
+            .is_none())
+    }
+
+    #[test]
+    fn en_passant_under_pin_in_ray() {
+        let board = Board::from_fen("2k4b/8/8/4Pp2/8/8/1K6/8 w - f6 0 1").unwrap();
+        let moves = board.available_en_passant();
+
+        assert!(board.pinned(Square::from_str("e5").unwrap()).is_some());
+        assert!(moves
+            .iter()
+            .find(|m| m.move_type
+                == MoveType::EnPassant {
+                    captures_on: Square::from_str("f5").unwrap()
+                })
+            .is_some())
+    }
+
+    #[test]
+    fn en_passant_under_pin_target_square_in_ray() {
+        let board = Board::from_fen("8/8/1K5q/3pP3/8/8/8/7k w - d6 0 1").unwrap();
+        let moves = board.available_en_passant();
+
+        assert!(moves
+            .iter()
+            .find(|m| m.move_type
+                == MoveType::EnPassant {
+                    captures_on: Square::from_str("d5").unwrap()
+                })
+            .is_some())
+    }
+
+    #[test]
     fn combined_pieces() {
         let board = Board::default();
         assert_eq!(board.white().0, 0xFFFF);
@@ -957,5 +1060,125 @@ mod tests {
         let moves = board.legal_moves();
         assert_eq!(moves.len(), 20);
         assert_eq!(board.side_to_move, Color::Black);
+    }
+
+    #[test]
+    fn pin() {
+        let mut board = Board::from_fen("4k3/8/7b/8/8/4P3/3K4/8 w - - 0 1").unwrap();
+        let moves = board.legal_moves();
+
+        assert!(board.pinned(Square::from_str("e3").unwrap()).is_some());
+        assert_eq!(
+            moves.iter().filter(|m| m.piece == PieceType::Pawn).count(),
+            0
+        );
+    }
+
+    #[test]
+    fn pinned_piece_can_not_capture_attacking_piece() {
+        let mut board = Board::from_fen("8/3k4/4p3/3R4/8/7B/8/6K1 b - - 0 1").unwrap();
+        let moves = board.legal_moves();
+
+        assert!(!moves.contains(&Move {
+            from: Square::from_str("e6").unwrap(),
+            to: Square::from_str("d5").unwrap(),
+            piece: PieceType::Pawn,
+            capture: Some(PieceType::Rook),
+            move_type: MoveType::Quiet
+        }));
+        assert_eq!(
+            moves.iter().filter(|m| m.piece == PieceType::Pawn).count(),
+            0
+        );
+        assert!(moves.iter().all(|m| m.piece == PieceType::King));
+    }
+
+    #[test]
+    fn double_check() {
+        let mut board = Board::from_fen("2nk4/8/8/8/7B/8/3R4/6K1 b - - 0 1").unwrap();
+        let moves = board.legal_moves();
+
+        assert!(moves.iter().all(|m| m.piece == PieceType::King));
+    }
+
+    #[test]
+    fn castling_rules() {
+        let mut white_both_side =
+            Board::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1").unwrap();
+        let moves = white_both_side.legal_moves();
+
+        let castling = white_both_side.available_castling();
+        assert!(castling.is_some());
+        assert_eq!(castling.unwrap(), CastlingSide::Both);
+        let _ = white_both_side.make_move(
+            *moves
+                .iter()
+                .find(|m| m.from == Square::from_str("a1").unwrap() && m.piece == PieceType::Rook)
+                .unwrap(),
+        ); // move rook
+        let moves = white_both_side.legal_moves();
+        let _ = white_both_side.make_move(moves[0]);
+
+        let castling = white_both_side.available_castling();
+        assert_eq!(castling.unwrap(), CastlingSide::KingSide);
+
+        let moves = white_both_side.legal_moves();
+        let _ = white_both_side.make_move(
+            *moves
+                .iter()
+                .find(|m| m.from == Square::from_str("h1").unwrap() && m.piece == PieceType::Rook)
+                .unwrap(),
+        ); // move rook
+        let moves = white_both_side.legal_moves();
+        let _ = white_both_side.make_move(moves[0]);
+
+        let castling = white_both_side.available_castling();
+        assert!(castling.is_none());
+    }
+
+    #[test]
+    fn castling_rules_black() {
+        let mut black_both_side =
+            Board::from_fen("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQq - 0 1").unwrap();
+        let moves = black_both_side.legal_moves();
+
+        let castling = black_both_side.available_castling();
+        assert!(castling.is_some());
+        assert_eq!(castling.unwrap(), CastlingSide::Both);
+        let _ = black_both_side.make_move(
+            *moves
+                .iter()
+                .find(|m| m.from == Square::from_str("a8").unwrap() && m.piece == PieceType::Rook)
+                .unwrap(),
+        ); // move rook
+        let moves = black_both_side.legal_moves();
+        let _ = black_both_side.make_move(moves[0]);
+
+        let castling = black_both_side.available_castling();
+        assert_eq!(castling.unwrap(), CastlingSide::KingSide);
+
+        let moves = black_both_side.legal_moves();
+        let _ = black_both_side.make_move(
+            *moves
+                .iter()
+                .find(|m| m.from == Square::from_str("h8").unwrap() && m.piece == PieceType::Rook)
+                .unwrap(),
+        ); // move rook
+        let moves = black_both_side.legal_moves();
+        let _ = black_both_side.make_move(moves[0]);
+
+        let castling = black_both_side.available_castling();
+        assert!(castling.is_none());
+    }
+
+    #[test]
+    fn check() {
+        let mut board = Board::from_fen("4k3/3r4/8/8/8/8/3K4/5B2 w - - 0 1").unwrap();
+        assert!(board.king_in_check());
+        let moves = board.legal_moves();
+        assert_eq!(moves.len(), 7);
+
+        assert!(moves.iter().all(|m| m.piece == PieceType::King
+            || (m.piece == PieceType::Bishop && m.to == Square::from_str("d3").unwrap())));
     }
 }
