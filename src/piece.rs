@@ -377,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    fn slideing_attacks_with_enemy_blockers() {
+    fn sliding_attacks_with_enemy_blockers() {
         let north_blocker =
             Bitboard::from_square_number(28).one_step_by_direction(crate::Direction::North);
         let south_blocker =
@@ -408,7 +408,7 @@ mod tests {
     }
 
     #[test]
-    fn slideing_attacks_with_enemy_blockers_on_diags() {
+    fn sliding_attacks_with_enemy_blockers_on_diags() {
         let north_blocker =
             Bitboard::from_square_number(28).one_step_by_direction(crate::Direction::NorthEast);
         let south_blocker =

@@ -1003,6 +1003,7 @@ mod tests {
         let board = Board::from_fen("3kq3/8/8/4Pp2/8/8/8/4K3 w - f6 0 1").unwrap();
         let moves = board.available_en_passant();
 
+        assert!(board.available_en_passant().is_empty());
         assert!(board.pinned(Square::from_str("e5").unwrap()).is_some());
         assert!(moves
             .iter()
@@ -1018,6 +1019,7 @@ mod tests {
         let board = Board::from_fen("2k4b/8/8/4Pp2/8/8/1K6/8 w - f6 0 1").unwrap();
         let moves = board.available_en_passant();
 
+        assert!(!board.available_en_passant().is_empty());
         assert!(board.pinned(Square::from_str("e5").unwrap()).is_some());
         assert!(moves
             .iter()
@@ -1033,6 +1035,7 @@ mod tests {
         let board = Board::from_fen("8/8/1K5q/3pP3/8/8/8/7k w - d6 0 1").unwrap();
         let moves = board.available_en_passant();
 
+        assert!(!board.available_en_passant().is_empty());
         assert!(moves
             .iter()
             .find(|m| m.move_type
@@ -1180,5 +1183,23 @@ mod tests {
 
         assert!(moves.iter().all(|m| m.piece == PieceType::King
             || (m.piece == PieceType::Bishop && m.to == Square::from_str("d3").unwrap())));
+    }
+
+    #[test]
+    fn mate() {
+        let mut board = Board::from_fen("3k4/2R1Q3/8/8/8/8/8/5K2 b - - 0 1").unwrap();
+        assert!(board.king_in_check());
+        let moves = board.legal_moves();
+        assert!(moves.is_empty());
+        assert_eq!(board.status, Status::Checkmate(Color::White));
+    }
+
+    #[test]
+    fn stalemate() {
+        let mut board = Board::from_fen("k7/2R5/8/8/1Q6/8/5p2/5K2 b - - 0 1").unwrap();
+        assert!(!board.king_in_check());
+        let moves = board.legal_moves();
+        assert!(moves.is_empty());
+        assert_eq!(board.status, Status::Stalemate);
     }
 }
