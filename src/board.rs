@@ -421,6 +421,9 @@ impl Board {
         (king.0 & self.attacks_to_king(self.all_pieces(), false).0 .0) != 0
     }
 
+    /// Returns pinned ray, for given square, if piece on this square is pinned.
+    /// This method checks only absolute pins, since only absolute pins are required for legal move
+    /// generation.
     #[inline]
     pub fn pinned(&self, square: Square) -> Option<Bitboard> {
         // let attacks = self.attacks_to_king(self.all_pieces() ^ Bitboard::from_square(square), true);

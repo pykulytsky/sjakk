@@ -8,6 +8,7 @@ use crate::{
 use strum::IntoEnumIterator;
 use thiserror::Error;
 
+/// FEN is the standard notation to describe positions of a chess game.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct FEN {
     pub pieces: [[Bitboard; 6]; 2],
@@ -345,6 +346,11 @@ mod tests {
     #[test]
     fn not_enough_parts() {
         let fen = "rnbqkbnr/1pp1pppp/p7/3pP3/8/8/PPPP1PPP/RNBQKBNR w d6 0 3";
+        let fen = parse(fen);
+        assert!(fen.is_err());
+        assert_eq!(fen.unwrap_err(), FENParseError::NotEnoughParts);
+
+        let fen = "rnbqkbnr/1pp1pppp/p7/3pP3/8/8/PPPP1PPP/RNBQKBNR w -d6 0 3";
         let fen = parse(fen);
         assert!(fen.is_err());
         assert_eq!(fen.unwrap_err(), FENParseError::NotEnoughParts);
