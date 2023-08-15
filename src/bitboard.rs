@@ -237,17 +237,17 @@ impl std::ops::BitXorAssign<Bitboard> for u64 {
 
 impl Display for Bitboard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "\n")?;
+        writeln!(f)?;
         for row in (0..8).rev() {
             write!(f, "{}", row + 1)?;
             for i in 0..8 {
                 write!(f, " {} ", self.0 >> (8 * row + i) & 1)?;
             }
 
-            write!(f, "\n")?;
+            writeln!(f)?;
         }
         write!(f, "  A  B  C  D  E  F  G  H ")?;
-        write!(f, "\n")?;
+        writeln!(f)?;
         Ok(())
     }
 }
@@ -334,9 +334,9 @@ impl Bitboard {
     }
 }
 
-impl Into<Square> for Bitboard {
-    fn into(self) -> Square {
-        self.lsb_square()
+impl From<Square> for Bitboard {
+    fn from(value: Square) -> Self {
+        Self::from_square(value)
     }
 }
 

@@ -40,9 +40,9 @@ pub const fn ray_attacks_antidiag(sq: usize) -> (u64, u64) {
     let maindia = 0x0102040810204080_u64;
     let antidiag: isize = 7 - (sq as isize & 7) - (sq as isize >> 3);
     let antidiags = if antidiag >= 0 {
-        maindia >> antidiag * 8
+        maindia >> (antidiag * 8)
     } else {
-        maindia << -antidiag * 8
+        maindia << (-antidiag * 8)
     };
 
     let south_east = lower_ones(sq as u8) & antidiags;

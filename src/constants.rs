@@ -51,14 +51,14 @@ const FILE: u64 = u64::from_ne_bytes([
 ]);
 
 pub const MASK_FILE: [u64; 8] = [
-    FILE << 0 as u8,
-    FILE << 1 as u8,
-    FILE << 2 as u8,
-    FILE << 3 as u8,
-    FILE << 4 as u8,
-    FILE << 5 as u8,
-    FILE << 6 as u8,
-    FILE << 7 as u8,
+    FILE,
+    FILE << 1_u8,
+    FILE << 2_u8,
+    FILE << 3_u8,
+    FILE << 4_u8,
+    FILE << 5_u8,
+    FILE << 6_u8,
+    FILE << 7_u8,
 ];
 
 pub const CLEAR_FILE: [u64; 8] = [
@@ -84,7 +84,7 @@ pub const LSB_64_TABLE: [u64; 64] = [
     57, 48, 13, 10, 39, 8, 44, 20, 47, 38, 22, 17, 37, 36, 26,
 ];
 
-pub const DEBRUIJ_T: &'static [u8] = &[
+pub const DEBRUIJ_T: &[u8] = &[
     0, 47, 1, 56, 48, 27, 2, 60, 57, 49, 41, 37, 28, 16, 3, 61, 54, 58, 35, 52, 50, 42, 21, 44, 38,
     32, 29, 23, 17, 11, 4, 62, 46, 55, 26, 59, 40, 36, 15, 53, 34, 51, 20, 43, 31, 22, 10, 45, 25,
     39, 14, 33, 19, 30, 9, 24, 13, 18, 8, 12, 7, 6, 5, 63,

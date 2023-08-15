@@ -143,9 +143,7 @@ impl Piece for Pawn {
         let enemy = occupied ^ own;
         let valid_attacks = pawn_attacks & enemy.0;
 
-        let valid_moves = valid_moves | valid_attacks;
-
-        valid_moves
+        valid_moves | valid_attacks
     }
 }
 

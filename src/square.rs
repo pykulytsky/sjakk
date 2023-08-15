@@ -105,9 +105,9 @@ impl Square {
     }
 }
 
-impl Into<Bitboard> for Square {
-    fn into(self) -> Bitboard {
-        Bitboard::from_square_number(self.0)
+impl From<Bitboard> for Square {
+    fn from(bb: Bitboard) -> Self {
+        bb.lsb_square()
     }
 }
 

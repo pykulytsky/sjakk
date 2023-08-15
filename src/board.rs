@@ -1,5 +1,6 @@
 use rand::seq::SliceRandom;
 use std::str::FromStr;
+use thiserror::Error;
 
 use crate::{
     constants::{self, CLEAR_FILE},
@@ -34,6 +35,10 @@ pub struct Board {
     pub side_to_move: Color,
     pub status: Status,
 }
+
+#[derive(Error, Debug, PartialEq, Eq)]
+#[error("Illegal move")]
+pub struct IllegalMove;
 
 impl Board {
     pub fn new(white_pieces: [Bitboard; 6], black_pieces: [Bitboard; 6]) -> Self {
@@ -118,12 +123,11 @@ impl Board {
                         bb = (bb ^ self.protected_pieces(self.side_to_move.opposite())) & bb;
                     } else {
                         let attacks_to_king = self.attacks_to_king(self.all_pieces(), true);
-                        bb = bb
-                            & if attacks_to_king.1 {
-                                Bitboard(0)
-                            } else {
-                                attacks_to_king.0
-                            };
+                        bb &= if attacks_to_king.1 {
+                            Bitboard(0)
+                        } else {
+                            attacks_to_king.0
+                        };
 
                         if let Some(pin) = self.pinned(sq) {
                             bb &= pin;
@@ -330,13 +334,12 @@ impl Board {
         protected_bb
     }
 
-    pub fn make_move(&mut self, m: Move) -> Result<(), ()> {
+    pub fn make_move(&mut self, m: Move) -> Result<(), IllegalMove> {
         if self.legal_moves().contains(&m) {
             unsafe { self.make_move_unchecked(m) }
             return Ok(());
-        } else {
-            return Err(());
         }
+        Err(IllegalMove)
     }
 
     /// Updates all the bitboards, which are involved in move, updates side to move and moves list.
@@ -395,14 +398,12 @@ impl Board {
                             attacks_to_king_bitboard |= attacks
                         }
                     }
-                } else {
-                    if bb.0 & king_square.0 != 0 {
-                        checks += 1;
-                        if with_attacker {
-                            attacks_to_king_bitboard |= Bitboard::from_square(sq);
-                        } else {
-                            attacks_to_king_bitboard |= bb | Bitboard::from_square(sq);
-                        }
+                } else if bb.0 & king_square.0 != 0 {
+                    checks += 1;
+                    if with_attacker {
+                        attacks_to_king_bitboard |= Bitboard::from_square(sq);
+                    } else {
+                        attacks_to_king_bitboard |= bb | Bitboard::from_square(sq);
                     }
                 }
             }
@@ -529,20 +530,15 @@ impl Board {
                         let captures_on: Square = Bitboard(left_attack.0).into();
 
                         let attacks_to_king = self.attacks_to_king(self.all_pieces(), true);
-                        left_attack = left_attack
-                            & if attacks_to_king.1 {
-                                Bitboard(0)
-                            } else {
-                                if attacks_to_king.0 == 0 {
-                                    Bitboard::universe()
-                                } else {
-                                    if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
-                                        Bitboard(0)
-                                    } else {
-                                        Bitboard::universe()
-                                    }
-                                }
-                            };
+                        left_attack &= if attacks_to_king.1 {
+                            Bitboard(0)
+                        } else if attacks_to_king.0 == 0 {
+                            Bitboard::universe()
+                        } else if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
+                            Bitboard(0)
+                        } else {
+                            Bitboard::universe()
+                        };
 
                         if let Some(pin) = self.pinned(p) {
                             if Bitboard::from_square(to) & pin == 0 {
@@ -565,20 +561,15 @@ impl Board {
                         let captures_on: Square = Bitboard(right_attack.0).into();
 
                         let attacks_to_king = self.attacks_to_king(self.all_pieces(), true);
-                        right_attack = right_attack
-                            & if attacks_to_king.1 {
-                                Bitboard(0)
-                            } else {
-                                if attacks_to_king.0 == 0 {
-                                    Bitboard::universe()
-                                } else {
-                                    if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
-                                        Bitboard(0)
-                                    } else {
-                                        Bitboard::universe()
-                                    }
-                                }
-                            };
+                        right_attack &= if attacks_to_king.1 {
+                            Bitboard(0)
+                        } else if attacks_to_king.0 == 0 {
+                            Bitboard::universe()
+                        } else if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
+                            Bitboard(0)
+                        } else {
+                            Bitboard::universe()
+                        };
 
                         if let Some(pin) = self.pinned(p) {
                             if Bitboard::from_square(to) & pin == 0 {
@@ -613,20 +604,15 @@ impl Board {
                         let captures_on: Square = Bitboard(left_attack.0).into();
                         let attacks_to_king = self.attacks_to_king(self.all_pieces(), true);
 
-                        left_attack = left_attack
-                            & if attacks_to_king.1 {
-                                Bitboard(0)
-                            } else {
-                                if attacks_to_king.0 == 0 {
-                                    Bitboard::universe()
-                                } else {
-                                    if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
-                                        Bitboard(0)
-                                    } else {
-                                        Bitboard::universe()
-                                    }
-                                }
-                            };
+                        left_attack &= if attacks_to_king.1 {
+                            Bitboard(0)
+                        } else if attacks_to_king.0 == 0 {
+                            Bitboard::universe()
+                        } else if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
+                            Bitboard(0)
+                        } else {
+                            Bitboard::universe()
+                        };
 
                         if let Some(pin) = self.pinned(p) {
                             if Bitboard::from_square(to) & pin == 0 {
@@ -649,20 +635,15 @@ impl Board {
                         let captures_on: Square = Bitboard(right_attack.0).into();
 
                         let attacks_to_king = self.attacks_to_king(self.all_pieces(), true);
-                        right_attack = right_attack
-                            & if attacks_to_king.1 {
-                                Bitboard(0)
-                            } else {
-                                if attacks_to_king.0 == 0 {
-                                    Bitboard::universe()
-                                } else {
-                                    if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
-                                        Bitboard(0)
-                                    } else {
-                                        Bitboard::universe()
-                                    }
-                                }
-                            };
+                        right_attack &= if attacks_to_king.1 {
+                            Bitboard(0)
+                        } else if attacks_to_king.0 == 0 {
+                            Bitboard::universe()
+                        } else if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
+                            Bitboard(0)
+                        } else {
+                            Bitboard::universe()
+                        };
                         if let Some(pin) = self.pinned(p) {
                             if Bitboard::from_square(to) & pin == 0 {
                                 right_attack &= pin;
@@ -862,7 +843,7 @@ impl std::fmt::Display for Board {
             write!(f, "\n ---------------------------------\n")?;
         }
         write!(f, "   A   B   C   D   E   F   G   H ")?;
-        write!(f, "\n")?;
+        writeln!(f)?;
         Ok(())
     }
 }
@@ -924,7 +905,7 @@ impl std::fmt::Display for Position {
             write!(f, "\n ---------------------------------\n")?;
         }
         write!(f, "   A   B   C   D   E   F   G   H ")?;
-        write!(f, "\n")?;
+        writeln!(f)?;
         Ok(())
     }
 }
@@ -944,7 +925,7 @@ impl Iterator for IntoIter {
     type Item = Position;
     fn next(&mut self) -> Option<Self::Item> {
         let moves = self.board.legal_moves();
-        if moves.len() == 0 || self.board.move_list.len() == 250 {
+        if moves.is_empty() || self.board.move_list.len() == 250 {
             println!("{:?}", self.board.status);
             return None;
         }
@@ -954,13 +935,15 @@ impl Iterator for IntoIter {
             m.to_owned()
         } else {
             let captures: Vec<&Move> = moves.iter().filter(|m| m.capture.is_some()).collect();
-            if captures.len() != 0 {
+            if !captures.is_empty() {
                 captures.choose(&mut rng).unwrap().to_owned().to_owned()
             } else {
                 moves.choose(&mut rng).unwrap().to_owned()
             }
         };
-        let _ = unsafe { self.board.make_move_unchecked(m) };
+        unsafe {
+            self.board.make_move_unchecked(m);
+        }
         Some(Position {
             white_pieces: self.board.white_pieces,
             black_pieces: self.board.black_pieces,
@@ -989,13 +972,10 @@ mod tests {
         assert_eq!(board.move_list[0].from, Square::from_str("d7").unwrap());
         assert_eq!(board.move_list[0].to, Square::from_str("d5").unwrap());
         let moves = board.available_en_passant();
-        assert!(moves
-            .iter()
-            .find(|m| m.move_type
-                == MoveType::EnPassant {
-                    captures_on: Square::from_str("d5").unwrap()
-                })
-            .is_some())
+        assert!(moves.iter().any(|m| m.move_type
+            == MoveType::EnPassant {
+                captures_on: Square::from_str("d5").unwrap()
+            }))
     }
 
     #[test]
@@ -1005,13 +985,10 @@ mod tests {
 
         assert!(board.available_en_passant().is_empty());
         assert!(board.pinned(Square::from_str("e5").unwrap()).is_some());
-        assert!(moves
-            .iter()
-            .find(|m| m.move_type
-                == MoveType::EnPassant {
-                    captures_on: Square::from_str("f5").unwrap()
-                })
-            .is_none())
+        assert!(!moves.iter().any(|m| m.move_type
+            == MoveType::EnPassant {
+                captures_on: Square::from_str("f5").unwrap()
+            }))
     }
 
     #[test]
@@ -1021,13 +998,10 @@ mod tests {
 
         assert!(!board.available_en_passant().is_empty());
         assert!(board.pinned(Square::from_str("e5").unwrap()).is_some());
-        assert!(moves
-            .iter()
-            .find(|m| m.move_type
-                == MoveType::EnPassant {
-                    captures_on: Square::from_str("f5").unwrap()
-                })
-            .is_some())
+        assert!(moves.iter().any(|m| m.move_type
+            == MoveType::EnPassant {
+                captures_on: Square::from_str("f5").unwrap()
+            }))
     }
 
     #[test]
@@ -1036,13 +1010,10 @@ mod tests {
         let moves = board.available_en_passant();
 
         assert!(!board.available_en_passant().is_empty());
-        assert!(moves
-            .iter()
-            .find(|m| m.move_type
-                == MoveType::EnPassant {
-                    captures_on: Square::from_str("d5").unwrap()
-                })
-            .is_some())
+        assert!(moves.iter().any(|m| m.move_type
+            == MoveType::EnPassant {
+                captures_on: Square::from_str("d5").unwrap()
+            }))
     }
 
     #[test]

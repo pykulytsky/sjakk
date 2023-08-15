@@ -1,4 +1,9 @@
-use std::{num::ParseIntError, str::FromStr};
+#![allow(clippy::single_char_pattern)]
+
+use std::{
+    num::ParseIntError,
+    str::{FromStr, Split},
+};
 
 use crate::{
     board::Board,
@@ -39,8 +44,8 @@ pub fn parse(fen: &str) -> Result<FEN, FENParseError> {
 impl FromStr for FEN {
     type Err = FENParseError;
     fn from_str(fen: &str) -> Result<Self, Self::Err> {
-        let mut parts = fen.split(" ");
-        if fen.split(" ").clone().count() != 6 {
+        let mut parts: Split<'_, &str> = fen.split(" ");
+        if fen.split(' ').clone().count() != 6 {
             return Err(FENParseError::NotEnoughParts);
         }
 
@@ -67,10 +72,10 @@ fn parse_moves(
     // TODO: fix errors convertation
     Ok((
         take.next()
-            .ok_or_else(|| FENParseError::FullmoveNumber)?
+            .ok_or(FENParseError::FullmoveNumber)?
             .parse::<u16>()?,
         take.next()
-            .ok_or_else(|| FENParseError::FullmoveNumber)?
+            .ok_or(FENParseError::FullmoveNumber)?
             .parse::<u16>()?,
     ))
 }
@@ -107,10 +112,8 @@ fn parse_piece_placement(notation: &str) -> Result<[[Bitboard; 6]; 2], FENParseE
         ],
     ];
     for n in notation.chars() {
-        if n.is_digit(10) {
-            offset += n
-                .to_digit(10)
-                .ok_or_else(|| FENParseError::PiecePlacement)?;
+        if n.is_ascii_digit() {
+            offset += n.to_digit(10).ok_or(FENParseError::PiecePlacement)?;
         } else {
             match n {
                 'p' => {
@@ -175,10 +178,8 @@ fn parse_piece_placement(notation: &str) -> Result<[[Bitboard; 6]; 2], FENParseE
         }
     }
 
-    for i in 0..2 {
-        pieces_bb[i]
-            .iter_mut()
-            .for_each(|p| *p = Bitboard(p.0.swap_bytes()));
+    for bb in pieces_bb.iter_mut() {
+        bb.iter_mut().for_each(|p| *p = Bitboard(p.0.swap_bytes()));
     }
     Ok(pieces_bb)
 }
