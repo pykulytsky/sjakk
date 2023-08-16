@@ -520,9 +520,13 @@ impl Board {
                 Color::White,
             ),
         };
+        let rays_to_king = RAY_ATTACKS[king_square.lsb_square().0 as usize]
+            .into_iter()
+            .reduce(|acc, next| acc | next)
+            .unwrap();
         // Skip the [`PieceType::King`], since you can not check with king.
         for piece in PieceType::iter().take(5) {
-            for sq in opposite_side[piece as usize] {
+            for sq in opposite_side[piece as usize] & rays_to_king {
                 let bb =
                     piece.pseudo_legal_moves(sq, color, all_pieces, self.pieces_combined(color));
                 if piece != PieceType::Pawn && piece != PieceType::Knight {
