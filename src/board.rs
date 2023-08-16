@@ -25,6 +25,40 @@ pub enum DrawReason {
     Repetition,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Default)]
+pub struct CastlingRights {
+    white_king_moved: bool,
+    black_king_moved: bool,
+
+    white_a_rook_moved: bool,
+    white_h_rook_moved: bool,
+
+    black_a_rook_moved: bool,
+    black_h_rook_moved: bool,
+}
+
+impl CastlingRights {
+    fn king_moved(&self, side: Color) -> bool {
+        match side {
+            Color::White => self.white_king_moved,
+            Color::Black => self.black_king_moved,
+        }
+    }
+
+    fn a_rook_moved(&self, side: Color) -> bool {
+        match side {
+            Color::White => self.white_a_rook_moved,
+            Color::Black => self.black_a_rook_moved,
+        }
+    }
+    fn h_rook_moved(&self, side: Color) -> bool {
+        match side {
+            Color::White => self.white_h_rook_moved,
+            Color::Black => self.black_h_rook_moved,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq)]
 pub struct Board {
     pub white_pieces: [Bitboard; 6],
@@ -33,6 +67,7 @@ pub struct Board {
     pub halfmoves: u16,
     pub side_to_move: Color,
     pub status: Status,
+    pub castling_rights: CastlingRights,
 }
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -48,6 +83,7 @@ impl Board {
             halfmoves: 0,
             side_to_move: Color::White,
             status: Status::Ongoing,
+            castling_rights: CastlingRights::default(),
         }
     }
 
@@ -103,151 +139,149 @@ impl Board {
             Color::Black => (self.black_pieces, self.black()),
         };
         let mut moves = vec![];
-        if self.king_in_check() {
-            for piece in PieceType::iter() {
-                for sq in own_pieces[piece as usize] {
-                    let mut bb = piece.pseudo_legal_moves(
-                        sq,
-                        self.side_to_move,
-                        self.all_pieces(),
-                        own_combined,
-                    );
 
+        let king_in_check = self.king_in_check();
+        let opposite_side_attacks = self.attacks(
+            self.pieces(self.side_to_move.opposite()),
+            self.side_to_move.opposite(),
+        );
+        let protected_pieces = self.protected_pieces(self.side_to_move.opposite());
+        let attacks_to_king = self.attacks_to_king(self.all_pieces(), true);
+
+        for piece in PieceType::iter() {
+            for sq in own_pieces[piece as usize] {
+                let mut bb = piece.pseudo_legal_moves(
+                    sq,
+                    self.side_to_move,
+                    self.all_pieces(),
+                    own_combined,
+                );
+                let pinned = self.pinned(sq);
+
+                if king_in_check {
                     if piece == PieceType::King {
-                        let opposite_side_attacks = self.attacks(
-                            self.pieces(self.side_to_move.opposite()),
-                            self.side_to_move.opposite(),
-                        );
                         bb = (bb ^ opposite_side_attacks) & bb;
-                        bb = (bb ^ self.protected_pieces(self.side_to_move.opposite())) & bb;
+                        bb = (bb ^ protected_pieces) & bb;
                     } else {
-                        let attacks_to_king = self.attacks_to_king(self.all_pieces(), true);
                         bb &= if attacks_to_king.1 {
                             Bitboard(0)
                         } else {
                             attacks_to_king.0
                         };
 
-                        if let Some(pin) = self.pinned(sq) {
+                        if let Some(pin) = pinned {
                             bb &= pin;
                         }
                     }
-
-                    self.fill_move_list(&mut moves, sq, bb, piece);
-                }
-            }
-        } else {
-            for piece in PieceType::iter() {
-                for sq in own_pieces[piece as usize] {
-                    let mut bb = piece.pseudo_legal_moves(
-                        sq,
-                        self.side_to_move,
-                        self.all_pieces(),
-                        own_combined,
-                    );
-                    if let Some(pin) = self.pinned(sq) {
+                } else {
+                    if let Some(pin) = pinned {
                         bb &= pin;
                     }
                     if piece == PieceType::King {
-                        let opposite_side_attacks = self.attacks(
-                            self.pieces(self.side_to_move.opposite()),
-                            self.side_to_move.opposite(),
-                        );
                         bb = (bb ^ opposite_side_attacks) & bb;
-                        bb = (bb ^ self.protected_pieces(self.side_to_move.opposite())) & bb;
+                        bb = (bb ^ protected_pieces) & bb;
                     }
+                }
 
+                if bb != 0 {
                     self.fill_move_list(&mut moves, sq, bb, piece);
                 }
             }
-            match (self.side_to_move, self.available_castling()) {
-                (Color::White, Some(castling)) => match castling {
-                    CastlingSide::KingSide => {
-                        moves.push(Move::new(
-                            Square::E1,
-                            Square::G1,
-                            PieceType::King,
-                            None,
-                            MoveType::Castling { side: castling },
-                        ));
-                    }
-                    CastlingSide::QueenSide => {
-                        moves.push(Move::new(
-                            Square::E1,
-                            Square::C1,
-                            PieceType::King,
-                            None,
-                            MoveType::Castling { side: castling },
-                        ));
-                    }
-                    CastlingSide::Both => {
-                        moves.push(Move::new(
-                            Square::E1,
-                            Square::G1,
-                            PieceType::King,
-                            None,
-                            MoveType::Castling {
-                                side: CastlingSide::KingSide,
-                            },
-                        ));
-                        moves.push(Move::new(
-                            Square::E1,
-                            Square::C1,
-                            PieceType::King,
-                            None,
-                            MoveType::Castling {
-                                side: CastlingSide::QueenSide,
-                            },
-                        ));
-                    }
-                },
-                (Color::Black, Some(castling)) => match castling {
-                    CastlingSide::KingSide => {
-                        moves.push(Move::new(
-                            Square::E8,
-                            Square::G8,
-                            PieceType::King,
-                            None,
-                            MoveType::Castling { side: castling },
-                        ));
-                    }
-                    CastlingSide::QueenSide => {
-                        moves.push(Move::new(
-                            Square::E8,
-                            Square::C8,
-                            PieceType::King,
-                            None,
-                            MoveType::Castling { side: castling },
-                        ));
-                    }
-                    CastlingSide::Both => {
-                        moves.push(Move::new(
-                            Square::E8,
-                            Square::G8,
-                            PieceType::King,
-                            None,
-                            MoveType::Castling {
-                                side: CastlingSide::KingSide,
-                            },
-                        ));
-                        moves.push(Move::new(
-                            Square::E8,
-                            Square::C8,
-                            PieceType::King,
-                            None,
-                            MoveType::Castling {
-                                side: CastlingSide::QueenSide,
-                            },
-                        ));
-                    }
-                },
-                _ => {}
-            }
+        }
+
+        if !king_in_check {
+            self.castling_rights(&mut moves);
         }
         moves.extend(self.available_en_passant());
         self.set_status(moves.len());
 
         moves
+    }
+
+    fn castling_rights(&self, moves: &mut Vec<Move>) {
+        match (self.side_to_move, self.available_castling()) {
+            (Color::White, Some(castling)) => match castling {
+                CastlingSide::KingSide => {
+                    moves.push(Move::new(
+                        Square::E1,
+                        Square::G1,
+                        PieceType::King,
+                        None,
+                        MoveType::Castling { side: castling },
+                    ));
+                }
+                CastlingSide::QueenSide => {
+                    moves.push(Move::new(
+                        Square::E1,
+                        Square::C1,
+                        PieceType::King,
+                        None,
+                        MoveType::Castling { side: castling },
+                    ));
+                }
+                CastlingSide::Both => {
+                    moves.push(Move::new(
+                        Square::E1,
+                        Square::G1,
+                        PieceType::King,
+                        None,
+                        MoveType::Castling {
+                            side: CastlingSide::KingSide,
+                        },
+                    ));
+                    moves.push(Move::new(
+                        Square::E1,
+                        Square::C1,
+                        PieceType::King,
+                        None,
+                        MoveType::Castling {
+                            side: CastlingSide::QueenSide,
+                        },
+                    ));
+                }
+            },
+            (Color::Black, Some(castling)) => match castling {
+                CastlingSide::KingSide => {
+                    moves.push(Move::new(
+                        Square::E8,
+                        Square::G8,
+                        PieceType::King,
+                        None,
+                        MoveType::Castling { side: castling },
+                    ));
+                }
+                CastlingSide::QueenSide => {
+                    moves.push(Move::new(
+                        Square::E8,
+                        Square::C8,
+                        PieceType::King,
+                        None,
+                        MoveType::Castling { side: castling },
+                    ));
+                }
+                CastlingSide::Both => {
+                    moves.push(Move::new(
+                        Square::E8,
+                        Square::G8,
+                        PieceType::King,
+                        None,
+                        MoveType::Castling {
+                            side: CastlingSide::KingSide,
+                        },
+                    ));
+                    moves.push(Move::new(
+                        Square::E8,
+                        Square::C8,
+                        PieceType::King,
+                        None,
+                        MoveType::Castling {
+                            side: CastlingSide::QueenSide,
+                        },
+                    ));
+                }
+            },
+            _ => {}
+        }
     }
 
     #[inline]
@@ -353,6 +387,34 @@ impl Board {
             if self.halfmoves == 100 {
                 self.status = Status::Draw(DrawReason::Halfmoves);
             }
+        }
+        // upadte castling rights
+        match m.piece {
+            PieceType::Rook => match m.from {
+                Square::A1 => {
+                    self.castling_rights.white_a_rook_moved = true;
+                }
+                Square::A8 => {
+                    self.castling_rights.black_a_rook_moved = true;
+                }
+                Square::H1 => {
+                    self.castling_rights.white_h_rook_moved = true;
+                }
+                Square::H8 => {
+                    self.castling_rights.black_h_rook_moved = true;
+                }
+                _ => {}
+            },
+            PieceType::King => match m.from {
+                Square::E1 => {
+                    self.castling_rights.white_king_moved = true;
+                }
+                Square::E8 => {
+                    self.castling_rights.black_king_moved = true;
+                }
+                _ => {}
+            },
+            _ => {}
         }
         m.update_position(
             &mut self.white_pieces,
@@ -672,49 +734,9 @@ impl Board {
         }
     }
     pub fn available_castling(&self) -> Option<CastlingSide> {
-        if self.king_in_check() {
-            return None;
-        }
-
-        let original_square = match self.side_to_move {
-            Color::White => Square::E1,
-            Color::Black => Square::E8,
-        };
-        let king_on_original_square = self
-            .move_list
-            .iter()
-            .filter(|m| m.piece == PieceType::King && m.from == original_square)
-            .count()
-            == 0
-            && (self.pieces(self.side_to_move)[PieceType::King as usize]
-                & Bitboard::from_square(original_square)
-                != 0);
-        let a_rook_square = match self.side_to_move {
-            Color::White => Square::A1,
-            Color::Black => Square::A8,
-        };
-        let h_rook_square = match self.side_to_move {
-            Color::White => Square::H1,
-            Color::Black => Square::H8,
-        };
-        let a_rook_on_original_square = self
-            .move_list
-            .iter()
-            .filter(|m| m.piece == PieceType::Rook && m.from == a_rook_square)
-            .count()
-            == 0
-            && (self.pieces(self.side_to_move)[PieceType::Rook as usize]
-                & Bitboard::from_square(a_rook_square)
-                != 0);
-        let h_rook_on_original_square = self
-            .move_list
-            .iter()
-            .filter(|m| m.piece == PieceType::Rook && m.from == h_rook_square)
-            .count()
-            == 0
-            && (self.pieces(self.side_to_move)[PieceType::Rook as usize]
-                & Bitboard::from_square(h_rook_square)
-                != 0);
+        let king_on_original_square = !self.castling_rights.king_moved(self.side_to_move);
+        let a_rook_on_original_square = !self.castling_rights.a_rook_moved(self.side_to_move);
+        let h_rook_on_original_square = !self.castling_rights.h_rook_moved(self.side_to_move);
 
         let pieces = self.pieces_combined(self.side_to_move)
             | self.attacks(
@@ -763,6 +785,7 @@ impl Default for Board {
             halfmoves: 0,
             side_to_move: Color::White,
             status: Status::Ongoing,
+            castling_rights: CastlingRights::default(),
         }
     }
 }
@@ -810,6 +833,8 @@ impl From<FEN> for Board {
             } else {
                 Status::Draw(DrawReason::Halfmoves)
             },
+            // TODO: reflect here castling rights from FEN
+            castling_rights: CastlingRights::default(),
         }
     }
 }
