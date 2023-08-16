@@ -1,4 +1,4 @@
-use std::{fmt::Display, str::FromStr};
+use std::fmt::Display;
 
 use crate::{piece::PieceType, Bitboard, Color, Square};
 
@@ -98,13 +98,13 @@ impl Move {
                     white_pieces[self.piece as usize] ^= from_to_bb;
                     match side {
                         CastlingSide::KingSide => {
-                            let rook = Bitboard::from_square(Square::from_str("h1").unwrap())
-                                | Bitboard::from_square(Square::from_str("f1").unwrap());
+                            let rook = Bitboard::from_square(Square::H1)
+                                | Bitboard::from_square(Square::F1);
                             white_pieces[PieceType::Rook as usize] ^= rook;
                         }
                         CastlingSide::QueenSide => {
-                            let rook = Bitboard::from_square(Square::from_str("a1").unwrap())
-                                | Bitboard::from_square(Square::from_str("d1").unwrap());
+                            let rook = Bitboard::from_square(Square::A1)
+                                | Bitboard::from_square(Square::D1);
                             white_pieces[PieceType::Rook as usize] ^= rook;
                         }
                         CastlingSide::Both => unreachable!(),
@@ -114,13 +114,13 @@ impl Move {
                     black_pieces[self.piece as usize] ^= from_to_bb;
                     match side {
                         CastlingSide::KingSide => {
-                            let rook = Bitboard::from_square(Square::from_str("h8").unwrap())
-                                | Bitboard::from_square(Square::from_str("f8").unwrap());
+                            let rook = Bitboard::from_square(Square::H8)
+                                | Bitboard::from_square(Square::F8);
                             black_pieces[PieceType::Rook as usize] ^= rook;
                         }
                         CastlingSide::QueenSide => {
-                            let rook = Bitboard::from_square(Square::from_str("a8").unwrap())
-                                | Bitboard::from_square(Square::from_str("d8").unwrap());
+                            let rook = Bitboard::from_square(Square::A8)
+                                | Bitboard::from_square(Square::D8);
                             black_pieces[PieceType::Rook as usize] ^= rook;
                         }
                         CastlingSide::Both => unreachable!(),

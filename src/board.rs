@@ -1,5 +1,4 @@
 use rand::seq::SliceRandom;
-use std::str::FromStr;
 use thiserror::Error;
 
 use crate::{
@@ -165,8 +164,8 @@ impl Board {
                 (Color::White, Some(castling)) => match castling {
                     CastlingSide::KingSide => {
                         moves.push(Move::new(
-                            Square::from_str("e1").unwrap(),
-                            Square::from_str("g1").unwrap(),
+                            Square::E1,
+                            Square::G1,
                             PieceType::King,
                             None,
                             MoveType::Castling { side: castling },
@@ -174,8 +173,8 @@ impl Board {
                     }
                     CastlingSide::QueenSide => {
                         moves.push(Move::new(
-                            Square::from_str("e1").unwrap(),
-                            Square::from_str("c1").unwrap(),
+                            Square::E1,
+                            Square::C1,
                             PieceType::King,
                             None,
                             MoveType::Castling { side: castling },
@@ -183,8 +182,8 @@ impl Board {
                     }
                     CastlingSide::Both => {
                         moves.push(Move::new(
-                            Square::from_str("e1").unwrap(),
-                            Square::from_str("g1").unwrap(),
+                            Square::E1,
+                            Square::G1,
                             PieceType::King,
                             None,
                             MoveType::Castling {
@@ -192,8 +191,8 @@ impl Board {
                             },
                         ));
                         moves.push(Move::new(
-                            Square::from_str("e1").unwrap(),
-                            Square::from_str("c1").unwrap(),
+                            Square::E1,
+                            Square::C1,
                             PieceType::King,
                             None,
                             MoveType::Castling {
@@ -205,8 +204,8 @@ impl Board {
                 (Color::Black, Some(castling)) => match castling {
                     CastlingSide::KingSide => {
                         moves.push(Move::new(
-                            Square::from_str("e8").unwrap(),
-                            Square::from_str("g8").unwrap(),
+                            Square::E8,
+                            Square::G8,
                             PieceType::King,
                             None,
                             MoveType::Castling { side: castling },
@@ -214,8 +213,8 @@ impl Board {
                     }
                     CastlingSide::QueenSide => {
                         moves.push(Move::new(
-                            Square::from_str("e8").unwrap(),
-                            Square::from_str("c8").unwrap(),
+                            Square::E8,
+                            Square::C8,
                             PieceType::King,
                             None,
                             MoveType::Castling { side: castling },
@@ -223,8 +222,8 @@ impl Board {
                     }
                     CastlingSide::Both => {
                         moves.push(Move::new(
-                            Square::from_str("e8").unwrap(),
-                            Square::from_str("g8").unwrap(),
+                            Square::E8,
+                            Square::G8,
                             PieceType::King,
                             None,
                             MoveType::Castling {
@@ -232,8 +231,8 @@ impl Board {
                             },
                         ));
                         moves.push(Move::new(
-                            Square::from_str("e8").unwrap(),
-                            Square::from_str("c8").unwrap(),
+                            Square::E8,
+                            Square::C8,
                             PieceType::King,
                             None,
                             MoveType::Castling {
@@ -678,8 +677,8 @@ impl Board {
         }
 
         let original_square = match self.side_to_move {
-            Color::White => Square::from_str("e1").unwrap(),
-            Color::Black => Square::from_str("e8").unwrap(),
+            Color::White => Square::E1,
+            Color::Black => Square::E8,
         };
         let king_on_original_square = self
             .move_list
@@ -691,12 +690,12 @@ impl Board {
                 & Bitboard::from_square(original_square)
                 != 0);
         let a_rook_square = match self.side_to_move {
-            Color::White => Square::from_str("a1").unwrap(),
-            Color::Black => Square::from_str("a8").unwrap(),
+            Color::White => Square::A1,
+            Color::Black => Square::A8,
         };
         let h_rook_square = match self.side_to_move {
-            Color::White => Square::from_str("h1").unwrap(),
-            Color::Black => Square::from_str("h8").unwrap(),
+            Color::White => Square::H1,
+            Color::Black => Square::H8,
         };
         let a_rook_on_original_square = self
             .move_list
@@ -954,6 +953,7 @@ impl Iterator for IntoIter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn halfmoves_rule() {
