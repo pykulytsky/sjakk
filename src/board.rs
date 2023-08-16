@@ -63,6 +63,8 @@ impl CastlingRights {
 pub struct Board {
     pub white_pieces: [Bitboard; 6],
     pub black_pieces: [Bitboard; 6],
+    pub white: Bitboard,
+    pub black: Bitboard,
     pub move_list: Vec<Move>,
     pub halfmoves: u16,
     pub side_to_move: Color,
@@ -79,6 +81,8 @@ impl Board {
         Self {
             white_pieces,
             black_pieces,
+            white: Self::combine(white_pieces),
+            black: Self::combine(black_pieces),
             move_list: vec![],
             halfmoves: 0,
             side_to_move: Color::White,
@@ -93,27 +97,16 @@ impl Board {
     }
 
     #[inline]
-    pub fn white(&self) -> Bitboard {
-        self.white_pieces
-            .into_iter()
-            .reduce(|acc, next| acc | next)
-            .unwrap()
-    }
-
-    #[inline]
-    pub fn black(&self) -> Bitboard {
-        self.black_pieces
-            .into_iter()
-            .reduce(|bb, next| bb | next)
-            .unwrap()
+    pub fn combine(bb: [Bitboard; 6]) -> Bitboard {
+        bb.into_iter().reduce(|acc, next| acc | next).unwrap()
     }
 
     #[inline]
     pub fn all_pieces(&self) -> Bitboard {
-        self.white() | self.black()
+        self.white | self.black
     }
 
-    pub fn pieces(&self, color: Color) -> [Bitboard; 6] {
+    fn pieces(&self, color: Color) -> [Bitboard; 6] {
         match color {
             Color::White => self.white_pieces,
             Color::Black => self.black_pieces,
@@ -122,8 +115,8 @@ impl Board {
 
     pub fn pieces_combined(&self, color: Color) -> Bitboard {
         match color {
-            Color::White => self.white(),
-            Color::Black => self.black(),
+            Color::White => self.white,
+            Color::Black => self.black,
         }
     }
 
@@ -135,8 +128,8 @@ impl Board {
     #[inline]
     pub fn legal_moves(&mut self) -> Vec<Move> {
         let (own_pieces, own_combined) = match self.side_to_move {
-            Color::White => (self.white_pieces, self.white()),
-            Color::Black => (self.black_pieces, self.black()),
+            Color::White => (self.white_pieces, self.white),
+            Color::Black => (self.black_pieces, self.black),
         };
         let mut moves = vec![];
 
@@ -156,7 +149,11 @@ impl Board {
                     self.all_pieces(),
                     own_combined,
                 );
-                let pinned = self.pinned(sq);
+                if bb == 0 {
+                    continue;
+                }
+
+                let pinned = if bb != 0 { self.pinned(sq) } else { None };
 
                 if king_in_check {
                     if piece == PieceType::King {
@@ -353,8 +350,8 @@ impl Board {
     pub fn protected_pieces(&self, color: Color) -> Bitboard {
         let king = self.pieces(color.opposite())[PieceType::King as usize];
         let (own, enemy) = match color {
-            Color::White => (self.white_pieces, self.black() ^ king),
-            Color::Black => (self.black_pieces, self.white() ^ king),
+            Color::White => (self.white_pieces, self.black ^ king),
+            Color::Black => (self.black_pieces, self.white ^ king),
         };
         let mut protected_bb = Bitboard(0);
         for piece in PieceType::iter() {
@@ -419,6 +416,8 @@ impl Board {
         m.update_position(
             &mut self.white_pieces,
             &mut self.black_pieces,
+            &mut self.white,
+            &mut self.black,
             self.side_to_move,
         );
         self.side_to_move = self.side_to_move.opposite();
@@ -548,21 +547,21 @@ impl Board {
     }
 
     #[inline]
-    pub fn attacks(&self, opposite_side: [Bitboard; 6], opposite_color: Color) -> Bitboard {
+    pub fn attacks(&self, side: [Bitboard; 6], color: Color) -> Bitboard {
         let mut bb = Bitboard(0);
 
-        for sq in opposite_side[PieceType::Pawn as usize] {
-            bb |= Pawn::pawn_attacks(opposite_color, sq);
+        for sq in side[PieceType::Pawn as usize] {
+            bb |= Pawn::pawn_attacks(color, sq);
         }
         let king_square = self.pieces(self.side_to_move)[PieceType::King as usize];
         for piece in PieceType::iter().skip(1) {
-            for sq in opposite_side[piece as usize] {
-                bb |= piece.pseudo_legal_moves(sq, opposite_color, self.all_pieces(), self.black());
+            for sq in side[piece as usize] {
+                // bb |= piece.pseudo_legal_moves(sq, color, self.all_pieces(), self.black);
                 bb |= piece.pseudo_legal_moves(
                     sq,
-                    opposite_color,
+                    color,
                     self.all_pieces() ^ king_square,
-                    self.black(),
+                    self.black,
                 );
             }
         }
@@ -764,23 +763,29 @@ impl Board {
 
 impl Default for Board {
     fn default() -> Self {
+        let white_pieces = [
+            Bitboard(constants::WHITE_PAWNS),
+            Bitboard(constants::WHITE_ROOKS),
+            Bitboard(constants::WHITE_KNIGHTS),
+            Bitboard(constants::WHITE_BISHOPS),
+            Bitboard(constants::WHITE_QUEENS),
+            Bitboard(constants::WHITE_KING),
+        ];
+        let black_pieces = [
+            Bitboard(constants::BLACK_PAWNS),
+            Bitboard(constants::BLACK_ROOKS),
+            Bitboard(constants::BLACK_KNIGHTS),
+            Bitboard(constants::BLACK_BISHOPS),
+            Bitboard(constants::BLACK_QUEENS),
+            Bitboard(constants::BLACK_KING),
+        ];
+        let white = Self::combine(white_pieces);
+        let black = Self::combine(black_pieces);
         Self {
-            white_pieces: [
-                Bitboard(constants::WHITE_PAWNS),
-                Bitboard(constants::WHITE_ROOKS),
-                Bitboard(constants::WHITE_KNIGHTS),
-                Bitboard(constants::WHITE_BISHOPS),
-                Bitboard(constants::WHITE_QUEENS),
-                Bitboard(constants::WHITE_KING),
-            ],
-            black_pieces: [
-                Bitboard(constants::BLACK_PAWNS),
-                Bitboard(constants::BLACK_ROOKS),
-                Bitboard(constants::BLACK_KNIGHTS),
-                Bitboard(constants::BLACK_BISHOPS),
-                Bitboard(constants::BLACK_QUEENS),
-                Bitboard(constants::BLACK_KING),
-            ],
+            white_pieces,
+            black_pieces,
+            white,
+            black,
             move_list: vec![],
             halfmoves: 0,
             side_to_move: Color::White,
@@ -822,9 +827,13 @@ impl From<FEN> for Board {
                 _ => unreachable!(),
             }
         }
+        let white = Self::combine(fen.pieces[Color::White as usize]);
+        let black = Self::combine(fen.pieces[Color::Black as usize]);
         Self {
             white_pieces: fen.pieces[Color::White as usize],
             black_pieces: fen.pieces[Color::Black as usize],
+            white,
+            black,
             move_list,
             halfmoves: fen.halfmove_clock,
             side_to_move: fen.active_color,
@@ -1044,8 +1053,8 @@ mod tests {
     #[test]
     fn combined_pieces() {
         let board = Board::default();
-        assert_eq!(board.white().0, 0xFFFF);
-        assert_eq!(board.black().0, 0xFFFF_u64.swap_bytes());
+        assert_eq!(board.white.0, 0xFFFF);
+        assert_eq!(board.black.0, 0xFFFF_u64.swap_bytes());
         assert_eq!(board.all_pieces().0, 0xFFFF | 0xFFFF_u64.swap_bytes());
     }
 
