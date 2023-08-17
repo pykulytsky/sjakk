@@ -190,7 +190,7 @@ impl Board {
             self.castling_rights(&mut moves);
         }
         moves.extend(self.available_en_passant());
-        self.set_status(moves.len());
+        self.set_status(moves.len(), king_in_check);
 
         moves
     }
@@ -544,23 +544,21 @@ impl Board {
             .into_iter()
             .reduce(|acc, next| acc | next)
             .unwrap();
-        for piece in PieceType::iter().take(5) {
+        for piece in [1, 3, 4] {
+            let piece = PieceType::from_index(piece);
             for sq in opposite_side[piece as usize] & rays_to_king {
                 let bb =
                     piece.pseudo_legal_moves(sq, color, all_pieces, self.pieces_combined(color));
-                if piece != PieceType::Pawn && piece != PieceType::Knight {
-                    for ray in 0..8 {
-                        if RAY_ATTACKS[sq.0 as usize][ray] & Bitboard::from_square(square).0 != 0
-                            && RAY_ATTACKS[sq.0 as usize][ray] & bb.0 & king_square.0 != 0
-                        {
-                            let attacks = if with_attacker {
-                                (RAY_ATTACKS[sq.0 as usize][ray] & bb.0)
-                                    | Bitboard::from_square(sq).0
-                            } else {
-                                RAY_ATTACKS[sq.0 as usize][ray] & bb.0
-                            };
-                            attacks_to_king_bitboard |= attacks
-                        }
+                for ray in 0..8 {
+                    if RAY_ATTACKS[sq.0 as usize][ray] & Bitboard::from_square(square).0 != 0
+                        && RAY_ATTACKS[sq.0 as usize][ray] & bb.0 & king_square.0 != 0
+                    {
+                        let attacks = if with_attacker {
+                            (RAY_ATTACKS[sq.0 as usize][ray] & bb.0) | Bitboard::from_square(sq).0
+                        } else {
+                            RAY_ATTACKS[sq.0 as usize][ray] & bb.0
+                        };
+                        attacks_to_king_bitboard |= attacks
                     }
                 }
             }
@@ -748,8 +746,8 @@ impl Board {
         en_passants
     }
 
-    fn set_status(&mut self, num_of_legal_moves: usize) {
-        match (self.king_in_check(), num_of_legal_moves) {
+    fn set_status(&mut self, num_of_legal_moves: usize, king_in_check: bool) {
+        match (king_in_check, num_of_legal_moves) {
             (true, 0) => self.status = Status::Checkmate(self.side_to_move.opposite()),
             (false, 0) => self.status = Status::Stalemate,
             _ => {}
