@@ -369,6 +369,7 @@ impl Board {
             unsafe { self.make_move_unchecked(m) }
             return Ok(());
         }
+
         Err(IllegalMove)
     }
 
@@ -408,6 +409,25 @@ impl Board {
                 }
                 Square::E8 => {
                     self.castling_rights.black_king_moved = true;
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+
+        match m.capture {
+            Some(PieceType::Rook) => match m.to {
+                Square::A1 => {
+                    self.castling_rights.white_a_rook_moved = true;
+                }
+                Square::A8 => {
+                    self.castling_rights.black_a_rook_moved = true;
+                }
+                Square::H1 => {
+                    self.castling_rights.white_h_rook_moved = true;
+                }
+                Square::H8 => {
+                    self.castling_rights.black_h_rook_moved = true;
                 }
                 _ => {}
             },
@@ -524,7 +544,6 @@ impl Board {
             .into_iter()
             .reduce(|acc, next| acc | next)
             .unwrap();
-        // Skip the [`PieceType::King`], since you can not check with king.
         for piece in PieceType::iter().take(5) {
             for sq in opposite_side[piece as usize] & rays_to_king {
                 let bb =
@@ -968,7 +987,12 @@ impl Iterator for IntoIter {
         }
 
         let mut rng = rand::thread_rng();
-        let m = if let Some(m) = moves.iter().find(|m| m.capture == Some(PieceType::King)) {
+        let m = if let Some(m) = moves.iter().find(|m| {
+            m.move_type
+                == MoveType::Castling {
+                    side: CastlingSide::KingSide,
+                }
+        }) {
             m.to_owned()
         } else {
             let captures: Vec<&Move> = moves.iter().filter(|m| m.capture.is_some()).collect();
@@ -1210,5 +1234,71 @@ mod tests {
         let moves = board.legal_moves();
         assert!(moves.is_empty());
         assert_eq!(board.status, Status::Stalemate);
+    }
+
+    #[test]
+    fn castling_white() {
+        let mut board =
+            Board::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1").unwrap();
+        let moves = board.legal_moves();
+        let castle = moves
+            .iter()
+            .find(|m| {
+                m.move_type
+                    == MoveType::Castling {
+                        side: CastlingSide::KingSide,
+                    }
+            })
+            .unwrap()
+            .to_owned();
+        let king = board.white_pieces[PieceType::King as usize];
+        assert_eq!(king.0.count_ones(), 1);
+        assert_eq!(king.lsb_square(), Square::E1);
+        assert!(king & board.white != 0);
+
+        let rook = Square::H1;
+        assert!(board.white_pieces[PieceType::Rook as usize] & Bitboard::from_square(rook) != 0);
+        let _ = board.make_move(castle);
+
+        let king = board.white_pieces[PieceType::King as usize];
+        assert_eq!(king.0.count_ones(), 1);
+        assert_eq!(king.lsb_square(), Square::G1);
+        assert!(king & board.white != 0);
+        assert!(
+            board.white_pieces[PieceType::Rook as usize] & Bitboard::from_square(Square::F1) != 0
+        );
+    }
+
+    #[test]
+    fn castling_black() {
+        let mut board =
+            Board::from_fen("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQq - 0 1").unwrap();
+        let moves = board.legal_moves();
+        let castle = moves
+            .iter()
+            .find(|m| {
+                m.move_type
+                    == MoveType::Castling {
+                        side: CastlingSide::QueenSide,
+                    }
+            })
+            .unwrap()
+            .to_owned();
+        let king = board.black_pieces[PieceType::King as usize];
+        assert_eq!(king.0.count_ones(), 1);
+        assert_eq!(king.lsb_square(), Square::E8);
+        assert!(king & board.black != 0);
+
+        let rook = Square::A8;
+        assert!(board.black_pieces[PieceType::Rook as usize] & Bitboard::from_square(rook) != 0);
+        let _ = board.make_move(castle);
+
+        let king = board.black_pieces[PieceType::King as usize];
+        assert_eq!(king.0.count_ones(), 1);
+        assert_eq!(king.lsb_square(), Square::C8);
+        assert!(king & board.black != 0);
+        assert!(
+            board.black_pieces[PieceType::Rook as usize] & Bitboard::from_square(Square::D8) != 0
+        );
     }
 }

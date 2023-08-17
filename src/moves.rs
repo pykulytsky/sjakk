@@ -38,8 +38,8 @@ impl Move {
         &self,
         white_pieces: &mut [Bitboard; 6],
         black_pieces: &mut [Bitboard; 6],
-        black: &mut Bitboard,
         white: &mut Bitboard,
+        black: &mut Bitboard,
         side_to_move: Color,
     ) {
         let from_bb = Bitboard(1_u64 << self.from.0);
@@ -130,13 +130,15 @@ impl Move {
                     match side {
                         CastlingSide::KingSide => {
                             let rook = Bitboard::from_square(Square::H1)
-                                | Bitboard::from_square(Square::F1);
+                                ^ Bitboard::from_square(Square::F1);
                             white_pieces[PieceType::Rook as usize] ^= rook;
+                            *white ^= rook;
                         }
                         CastlingSide::QueenSide => {
                             let rook = Bitboard::from_square(Square::A1)
-                                | Bitboard::from_square(Square::D1);
+                                ^ Bitboard::from_square(Square::D1);
                             white_pieces[PieceType::Rook as usize] ^= rook;
+                            *white ^= rook;
                         }
                         CastlingSide::Both => unreachable!(),
                     }
@@ -147,13 +149,15 @@ impl Move {
                     match side {
                         CastlingSide::KingSide => {
                             let rook = Bitboard::from_square(Square::H8)
-                                | Bitboard::from_square(Square::F8);
+                                ^ Bitboard::from_square(Square::F8);
                             black_pieces[PieceType::Rook as usize] ^= rook;
+                            *black ^= rook;
                         }
                         CastlingSide::QueenSide => {
                             let rook = Bitboard::from_square(Square::A8)
-                                | Bitboard::from_square(Square::D8);
+                                ^ Bitboard::from_square(Square::D8);
                             black_pieces[PieceType::Rook as usize] ^= rook;
+                            *black ^= rook;
                         }
                         CastlingSide::Both => unreachable!(),
                     }
