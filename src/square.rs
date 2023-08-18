@@ -37,7 +37,7 @@ impl std::fmt::Display for Rank {
 
 impl Rank {
     #[inline]
-    pub fn from_index(i: usize) -> Rank {
+    pub const fn from_index(i: usize) -> Rank {
         unsafe { transmute((i as u8) & 7) }
     }
 }
@@ -73,7 +73,7 @@ impl std::fmt::Display for File {
 
 impl File {
     #[inline]
-    pub fn from_index(i: usize) -> File {
+    pub const fn from_index(i: usize) -> File {
         unsafe { transmute((i as u8) & 7) }
     }
 }
@@ -96,11 +96,11 @@ impl Square {
         Self((rank as u8 * 8) + file as u8)
     }
 
-    pub fn file(&self) -> File {
+    pub const fn file(&self) -> File {
         File::from_index((self.0 & 7) as usize)
     }
 
-    pub fn rank(&self) -> Rank {
+    pub const fn rank(&self) -> Rank {
         Rank::from_index((self.0 >> 3) as usize)
     }
 

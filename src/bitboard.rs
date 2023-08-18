@@ -265,7 +265,7 @@ impl Bitboard {
         Self(1_u64 << square)
     }
 
-    pub fn from_square(sq: Square) -> Bitboard {
+    pub const fn from_square(sq: Square) -> Bitboard {
         Bitboard(1u64 << sq.0)
     }
 

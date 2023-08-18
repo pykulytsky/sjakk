@@ -6,7 +6,8 @@ use crate::{
     moves::{CastlingSide, Move, MoveType},
     parsers::fen::{self, FENParseError, FEN},
     piece::{Color, Pawn, PieceType},
-    rays::RAY_ATTACKS,
+    rays::{BISHOP_ATTACKS, RAY_ATTACKS, ROOK_ATTACKS},
+    utils::between,
     Bitboard, Rank, Square,
 };
 use strum::IntoEnumIterator;
@@ -127,6 +128,7 @@ impl Board {
 
     #[inline]
     pub fn legal_moves(&mut self) -> Vec<Move> {
+        let pinned_bb = self.find_pinned();
         let (own_pieces, own_combined) = match self.side_to_move {
             Color::White => (self.white_pieces, self.white),
             Color::Black => (self.black_pieces, self.black),
@@ -153,8 +155,6 @@ impl Board {
                     continue;
                 }
 
-                let pinned = if bb != 0 { self.pinned(sq) } else { None };
-
                 if king_in_check {
                     if piece == PieceType::King {
                         bb = (bb ^ opposite_side_attacks) & bb;
@@ -165,21 +165,21 @@ impl Board {
                         } else {
                             attacks_to_king.0
                         };
-
-                        if let Some(pin) = pinned {
-                            bb &= pin;
-                        }
                     }
                 } else {
-                    if let Some(pin) = pinned {
-                        bb &= pin;
-                    }
                     if piece == PieceType::King {
                         bb = (bb ^ opposite_side_attacks) & bb;
                         bb = (bb ^ protected_pieces) & bb;
                     }
                 }
 
+                let pinned = pinned_bb & Bitboard::from_square(sq) != 0;
+                if pinned {
+                    let king_square =
+                        self.pieces(self.side_to_move)[PieceType::King as usize].lsb_square();
+                    let pin = self.get_ray(king_square, sq);
+                    bb &= pin;
+                }
                 if bb != 0 {
                     self.fill_move_list(&mut moves, sq, bb, piece);
                 }
@@ -415,8 +415,8 @@ impl Board {
             _ => {}
         }
 
-        match m.capture {
-            Some(PieceType::Rook) => match m.to {
+        if let Some(PieceType::Rook) = m.capture {
+            match m.to {
                 Square::A1 => {
                     self.castling_rights.white_a_rook_moved = true;
                 }
@@ -430,8 +430,7 @@ impl Board {
                     self.castling_rights.black_h_rook_moved = true;
                 }
                 _ => {}
-            },
-            _ => {}
+            }
         }
         m.update_position(
             &mut self.white_pieces,
@@ -506,7 +505,7 @@ impl Board {
     /// This method checks only absolute pins, since only absolute pins are required for legal move
     /// generation.
     #[inline]
-    pub fn pinned(&self, square: Square) -> Option<Bitboard> {
+    fn pinned(&self, square: Square) -> Option<Bitboard> {
         // let attacks = self.attacks_to_king(self.all_pieces() ^ Bitboard::from_square(square), true);
 
         let attacks = self.pinned_ray(
@@ -753,6 +752,49 @@ impl Board {
             _ => {}
         }
     }
+
+    pub fn find_pinned(&self) -> Bitboard {
+        let king = self.pieces(self.side_to_move)[PieceType::King as usize].lsb_square();
+        //white -> opposite
+        let bishop_rays = Bitboard(
+            BISHOP_ATTACKS[king.0 as usize]
+                .into_iter()
+                .reduce(|acc, next| acc | next)
+                .unwrap()
+                .to_owned(),
+        ) & (self.pieces(self.side_to_move.opposite())
+            [PieceType::Bishop as usize]
+            | self.pieces(self.side_to_move.opposite())[PieceType::Queen as usize]);
+
+        let rook_rays = Bitboard(
+            ROOK_ATTACKS[king.0 as usize]
+                .into_iter()
+                .reduce(|acc, next| acc | next)
+                .unwrap()
+                .to_owned(),
+        ) & (self.pieces(self.side_to_move.opposite())[PieceType::Rook as usize]
+            | self.pieces(self.side_to_move.opposite())[PieceType::Queen as usize]);
+        let attackers =
+            self.pieces_combined(self.side_to_move.opposite()) & (bishop_rays | rook_rays);
+        let mut pinned = Bitboard(0);
+        for sq in attackers {
+            let between = between(sq, king) & self.all_pieces();
+            if between.0.count_ones() == 1 {
+                pinned ^= between;
+            }
+        }
+        pinned
+    }
+
+    fn get_ray(&self, sq1: Square, sq2: Square) -> Bitboard {
+        Bitboard(
+            RAY_ATTACKS[sq1.0 as usize]
+                .into_iter()
+                .find(|r| r & Bitboard::from_square(sq2).0 != 0)
+                .unwrap(),
+        )
+    }
+
     pub fn available_castling(&self) -> Option<CastlingSide> {
         let king_on_original_square = !self.castling_rights.king_moved(self.side_to_move);
         let a_rook_on_original_square = !self.castling_rights.a_rook_moved(self.side_to_move);
@@ -1106,6 +1148,14 @@ mod tests {
             moves.iter().filter(|m| m.piece == PieceType::Pawn).count(),
             0
         );
+    }
+
+    #[test]
+    fn ray_blocked_by_two_pieces() {
+        let board = Board::from_fen("4k3/8/7b/8/5P2/4P3/3K4/8 w - - 0 1").unwrap();
+
+        assert!(board.pinned(Square::from_str("e3").unwrap()).is_none());
+        assert!(board.pinned(Square::from_str("e4").unwrap()).is_none());
     }
 
     #[test]
