@@ -187,7 +187,7 @@ impl Board {
         }
 
         if !king_in_check {
-            self.castling_rights(&mut moves);
+            self.castling_rules(&mut moves);
         }
         moves.extend(self.available_en_passant());
         self.set_status(moves.len(), king_in_check);
@@ -195,7 +195,7 @@ impl Board {
         moves
     }
 
-    fn castling_rights(&self, moves: &mut Vec<Move>) {
+    fn castling_rules(&self, moves: &mut Vec<Move>) {
         match (self.side_to_move, self.available_castling()) {
             (Color::White, Some(castling)) => match castling {
                 CastlingSide::KingSide => {
