@@ -1,4 +1,5 @@
 use rand::seq::SliceRandom;
+use smallvec::{smallvec, SmallVec};
 use thiserror::Error;
 
 use crate::{
@@ -66,7 +67,7 @@ pub struct Board {
     pub black_pieces: [Bitboard; 6],
     pub white: Bitboard,
     pub black: Bitboard,
-    pub move_list: Vec<Move>,
+    pub move_list: SmallVec<[Move; 256]>,
     pub halfmoves: u16,
     pub side_to_move: Color,
     pub status: Status,
@@ -84,7 +85,7 @@ impl Board {
             black_pieces,
             white: Self::combine(white_pieces),
             black: Self::combine(black_pieces),
-            move_list: vec![],
+            move_list: smallvec![],
             halfmoves: 0,
             side_to_move: Color::White,
             status: Status::Ongoing,
@@ -127,13 +128,13 @@ impl Board {
     }
 
     #[inline]
-    pub fn legal_moves(&mut self) -> Vec<Move> {
+    pub fn legal_moves(&mut self) -> SmallVec<[Move; 32]> {
         let pinned_bb = self.find_pinned();
         let (own_pieces, own_combined) = match self.side_to_move {
             Color::White => (self.white_pieces, self.white),
             Color::Black => (self.black_pieces, self.black),
         };
-        let mut moves = vec![];
+        let mut moves = smallvec![];
 
         let king_in_check = self.king_in_check();
         let opposite_side_attacks = self.attacks(
@@ -187,7 +188,7 @@ impl Board {
         }
 
         if !king_in_check {
-            self.castling_rules(&mut moves);
+            self.castling_rules(&mut moves, &opposite_side_attacks);
         }
         moves.extend(self.available_en_passant());
         self.set_status(moves.len(), king_in_check);
@@ -195,8 +196,11 @@ impl Board {
         moves
     }
 
-    fn castling_rules(&self, moves: &mut Vec<Move>) {
-        match (self.side_to_move, self.available_castling()) {
+    fn castling_rules(&self, moves: &mut SmallVec<[Move; 32]>, opposite_side_attacks: &Bitboard) {
+        match (
+            self.side_to_move,
+            self.available_castling(opposite_side_attacks),
+        ) {
             (Color::White, Some(castling)) => match castling {
                 CastlingSide::KingSide => {
                     moves.push(Move::new(
@@ -284,7 +288,7 @@ impl Board {
     #[inline]
     fn fill_move_list(
         &self,
-        move_list: &mut Vec<Move>,
+        move_list: &mut SmallVec<[Move; 32]>,
         sq: Square,
         moves: Bitboard,
         piece: PieceType,
@@ -589,8 +593,8 @@ impl Board {
         bb
     }
 
-    pub fn available_en_passant(&self) -> Vec<Move> {
-        let mut en_passants = vec![];
+    pub fn available_en_passant(&self) -> SmallVec<[Move; 2]> {
+        let mut en_passants = smallvec![];
         if let Some(m) = self.move_list.last() {
             let prev_move_side = self.side_to_move.opposite();
             if prev_move_side == Color::White
@@ -795,16 +799,21 @@ impl Board {
         )
     }
 
-    pub fn available_castling(&self) -> Option<CastlingSide> {
+    pub fn get_available_castling(&self) -> Option<CastlingSide> {
+        let opposite_side_attacks = self.attacks(
+            self.pieces(self.side_to_move.opposite()),
+            self.side_to_move.opposite(),
+        );
+        self.available_castling(&opposite_side_attacks)
+    }
+
+    #[inline]
+    fn available_castling(&self, opposite_side_attacks: &Bitboard) -> Option<CastlingSide> {
         let king_on_original_square = !self.castling_rights.king_moved(self.side_to_move);
         let a_rook_on_original_square = !self.castling_rights.a_rook_moved(self.side_to_move);
         let h_rook_on_original_square = !self.castling_rights.h_rook_moved(self.side_to_move);
 
-        let pieces = self.pieces_combined(self.side_to_move)
-            | self.attacks(
-                self.pieces(self.side_to_move.opposite()),
-                self.side_to_move.opposite(),
-            );
+        let pieces = &self.pieces_combined(self.side_to_move) | opposite_side_attacks;
         let king_side = match self.side_to_move {
             Color::White => (pieces.0 >> 5).trailing_zeros() == 2,
             Color::Black => (pieces.0.swap_bytes() >> 5).trailing_zeros() == 2,
@@ -849,7 +858,7 @@ impl Default for Board {
             black_pieces,
             white,
             black,
-            move_list: vec![],
+            move_list: smallvec![],
             halfmoves: 0,
             side_to_move: Color::White,
             status: Status::Ongoing,
@@ -897,7 +906,7 @@ impl From<FEN> for Board {
             black_pieces: fen.pieces[Color::Black as usize],
             white,
             black,
-            move_list,
+            move_list: move_list.into(),
             halfmoves: fen.halfmove_clock,
             side_to_move: fen.active_color,
             status: if fen.halfmove_clock < 100 {
@@ -1191,7 +1200,7 @@ mod tests {
             Board::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1").unwrap();
         let moves = white_both_side.legal_moves();
 
-        let castling = white_both_side.available_castling();
+        let castling = white_both_side.get_available_castling();
         assert!(castling.is_some());
         assert_eq!(castling.unwrap(), CastlingSide::Both);
         let _ = white_both_side.make_move(
@@ -1203,7 +1212,7 @@ mod tests {
         let moves = white_both_side.legal_moves();
         let _ = white_both_side.make_move(moves[0]);
 
-        let castling = white_both_side.available_castling();
+        let castling = white_both_side.get_available_castling();
         assert_eq!(castling.unwrap(), CastlingSide::KingSide);
 
         let moves = white_both_side.legal_moves();
@@ -1216,7 +1225,7 @@ mod tests {
         let moves = white_both_side.legal_moves();
         let _ = white_both_side.make_move(moves[0]);
 
-        let castling = white_both_side.available_castling();
+        let castling = white_both_side.get_available_castling();
         assert!(castling.is_none());
     }
 
@@ -1226,7 +1235,7 @@ mod tests {
             Board::from_fen("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQq - 0 1").unwrap();
         let moves = black_both_side.legal_moves();
 
-        let castling = black_both_side.available_castling();
+        let castling = black_both_side.get_available_castling();
         assert!(castling.is_some());
         assert_eq!(castling.unwrap(), CastlingSide::Both);
         let _ = black_both_side.make_move(
@@ -1238,7 +1247,7 @@ mod tests {
         let moves = black_both_side.legal_moves();
         let _ = black_both_side.make_move(moves[0]);
 
-        let castling = black_both_side.available_castling();
+        let castling = black_both_side.get_available_castling();
         assert_eq!(castling.unwrap(), CastlingSide::KingSide);
 
         let moves = black_both_side.legal_moves();
@@ -1251,7 +1260,7 @@ mod tests {
         let moves = black_both_side.legal_moves();
         let _ = black_both_side.make_move(moves[0]);
 
-        let castling = black_both_side.available_castling();
+        let castling = black_both_side.get_available_castling();
         assert!(castling.is_none());
     }
 
