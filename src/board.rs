@@ -166,11 +166,9 @@ impl Board {
                             attacks_to_king.0
                         };
                     }
-                } else {
-                    if piece == PieceType::King {
-                        bb = (bb ^ opposite_side_attacks) & bb;
-                        bb = (bb ^ protected_pieces) & bb;
-                    }
+                } else if piece == PieceType::King {
+                    bb = (bb ^ opposite_side_attacks) & bb;
+                    bb = (bb ^ protected_pieces) & bb;
                 }
 
                 let pinned = pinned_bb & Bitboard::from_square(sq) != 0;
@@ -1197,6 +1195,15 @@ mod tests {
         let mut board = Board::from_fen("2nk4/8/8/8/7B/8/3R4/6K1 b - - 0 1").unwrap();
         let moves = board.legal_moves();
 
+        assert!(moves.iter().all(|m| m.piece == PieceType::King));
+    }
+
+    #[test]
+    fn check_whith_knight() {
+        let mut board = Board::from_fen("8/3n4/1p4N1/8/1P5k/8/5K2/8 b - - 41 39").unwrap();
+        let moves = board.legal_moves();
+
+        assert!(board.king_in_check().0);
         assert!(moves.iter().all(|m| m.piece == PieceType::King));
     }
 
