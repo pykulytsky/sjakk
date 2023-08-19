@@ -2,11 +2,9 @@
 
 use std::mem::transmute;
 
-use strum_macros::EnumIter;
-
 use crate::Bitboard;
 
-#[derive(Debug, EnumIter, Clone, Copy, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq)]
 pub enum Rank {
     Rank1,
     Rank2,
@@ -42,7 +40,7 @@ impl Rank {
     }
 }
 
-#[derive(Debug, EnumIter, Clone, Copy, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq)]
 pub enum File {
     A,
     B,

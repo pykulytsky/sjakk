@@ -10,7 +10,6 @@ use crate::{
     piece::{Color, PieceType},
     Bitboard, Square,
 };
-use strum::IntoEnumIterator;
 use thiserror::Error;
 
 /// FEN is the standard notation to describe positions of a chess game.
@@ -229,7 +228,7 @@ impl ToString for FEN {
             }
             let mut empty = true;
             for (side, piece) in self.pieces.iter().enumerate() {
-                for p in PieceType::iter() {
+                for p in PieceType::ALL {
                     if pieces & (1_u64 << i) & piece[p as usize].0.swap_bytes() != 0 {
                         empty = false;
 

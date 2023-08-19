@@ -1,6 +1,5 @@
 //! Provides some useful constants, that are used throughout the crate.
 use crate::Square;
-use strum_macros::EnumIter;
 
 /// Represents all possible directions in chess, in which piece can move.
 ///
@@ -14,7 +13,7 @@ use strum_macros::EnumIter;
 ///  soWe         sout         soEa
 ///  southwest    south   southeast
 ///  `
-#[derive(Debug, EnumIter)]
+#[derive(Debug)]
 pub enum Direction {
     North,
     NorthEast,

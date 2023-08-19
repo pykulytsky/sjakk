@@ -11,7 +11,6 @@ use crate::{
     utils::between,
     Bitboard, Rank, Square,
 };
-use strum::IntoEnumIterator;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub enum Status {
@@ -143,7 +142,7 @@ impl Board {
         );
         let protected_pieces = self.protected_pieces(self.side_to_move.opposite());
 
-        for piece in PieceType::iter() {
+        for piece in PieceType::ALL {
             for sq in own_pieces[piece as usize] {
                 let mut bb = piece.pseudo_legal_moves(
                     sq,
@@ -355,7 +354,7 @@ impl Board {
             Color::Black => (self.black_pieces, self.white ^ king),
         };
         let mut protected_bb = Bitboard(0);
-        for piece in PieceType::iter() {
+        for piece in PieceType::ALL {
             for sq in own[piece as usize] {
                 let bb = piece.pseudo_legal_moves(sq, color, self.all_pieces() ^ king, enemy)
                     & self.pieces_combined(color);
@@ -461,7 +460,7 @@ impl Board {
             ),
         };
         // Skip the [`PieceType::King`], since you can not check with king.
-        for piece in PieceType::iter().take(5) {
+        for piece in PieceType::ALL.into_iter().take(5) {
             for sq in opposite_side[piece as usize] {
                 let bb =
                     piece.pseudo_legal_moves(sq, color, all_pieces, self.pieces_combined(color));
@@ -582,14 +581,14 @@ impl Board {
             bb |= Pawn::pawn_attacks(color, sq);
         }
         let king_square = self.pieces(self.side_to_move)[PieceType::King as usize];
-        for piece in PieceType::iter().skip(1) {
+        for piece in PieceType::ALL.into_iter().skip(1) {
             for sq in side[piece as usize] {
                 // bb |= piece.pseudo_legal_moves(sq, color, self.all_pieces(), self.black);
                 bb |= piece.pseudo_legal_moves(
                     sq,
                     color,
                     self.all_pieces() ^ king_square,
-                    self.black,
+                    self.pieces_combined(self.side_to_move.opposite()),
                 );
             }
         }
@@ -933,7 +932,7 @@ impl std::fmt::Display for Board {
             for i in 0..8 {
                 let piece = Bitboard::from_square_number(8 * row + i);
                 if piece & pieces != 0 {
-                    for p in PieceType::iter() {
+                    for p in PieceType::ALL {
                         if self.white_pieces[p as usize] & piece != 0 {
                             write!(f, "| {} ", p.unicode(Color::White))?;
                             break;
@@ -995,7 +994,7 @@ impl std::fmt::Display for Position {
             for i in 0..8 {
                 let piece = Bitboard::from_square_number(8 * row + i);
                 if piece & pieces != 0 {
-                    for p in PieceType::iter() {
+                    for p in PieceType::ALL {
                         if self.white_pieces[p as usize] & piece != 0 {
                             write!(f, "| {} ", p.unicode(Color::White))?;
                             break;
@@ -1370,5 +1369,15 @@ mod tests {
         assert!(
             board.black_pieces[PieceType::Rook as usize] & Bitboard::from_square(Square::D8) != 0
         );
+    }
+
+    #[test]
+    fn protected_pieces() {
+        let mut board = Board::from_fen("1b4k1/8/8/8/5r2/4K3/8/8 w - - 0 1").unwrap();
+        let moves = board.legal_moves();
+        assert_eq!(moves.len(), 3);
+        assert!(!moves
+            .iter()
+            .any(|m| m.capture.is_some() && m.piece == PieceType::King),);
     }
 }
