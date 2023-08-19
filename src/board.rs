@@ -136,13 +136,12 @@ impl Board {
         };
         let mut moves = smallvec![];
 
-        let king_in_check = self.king_in_check();
+        let (king_in_check, attacks_to_king) = self.king_in_check();
         let opposite_side_attacks = self.attacks(
             self.pieces(self.side_to_move.opposite()),
             self.side_to_move.opposite(),
         );
         let protected_pieces = self.protected_pieces(self.side_to_move.opposite());
-        let attacks_to_king = self.attacks_to_king(self.all_pieces(), true);
 
         for piece in PieceType::iter() {
             for sq in own_pieces[piece as usize] {
@@ -484,9 +483,9 @@ impl Board {
                 } else if bb.0 & king_square.0 != 0 {
                     checks += 1;
                     if with_attacker {
-                        attacks_to_king_bitboard |= Bitboard::from_square(sq);
+                        attacks_to_king_bitboard |= (bb & king_square) | Bitboard::from_square(sq);
                     } else {
-                        attacks_to_king_bitboard |= bb | Bitboard::from_square(sq);
+                        attacks_to_king_bitboard |= bb & king_square;
                     }
                 }
             }
@@ -495,14 +494,21 @@ impl Board {
         (attacks_to_king_bitboard, checks > 1)
     }
 
+    /// Returns true if king in check, second tuple contains [`Bitboard`] with all the attacks to
+    /// king with attacking pieces, as well as boolean value which indicates if king is in double
+    /// check.
     #[inline]
-    pub fn king_in_check(&self) -> bool {
+    pub fn king_in_check(&self) -> (bool, (Bitboard, bool)) {
         let king = match self.side_to_move {
             Color::White => self.white_pieces[PieceType::King as usize],
             Color::Black => self.black_pieces[PieceType::King as usize],
         };
 
-        (king.0 & self.attacks_to_king(self.all_pieces(), false).0 .0) != 0
+        let attacks = self.attacks_to_king(self.all_pieces(), true);
+        let attacks_to_king =
+            attacks.0 & !(attacks.0 & self.pieces_combined(self.side_to_move.opposite()));
+
+        ((king & attacks_to_king) != 0, attacks)
     }
 
     /// Returns pinned ray, for given square, if piece on this square is pinned.
@@ -1267,7 +1273,7 @@ mod tests {
     #[test]
     fn check() {
         let mut board = Board::from_fen("4k3/3r4/8/8/8/8/3K4/5B2 w - - 0 1").unwrap();
-        assert!(board.king_in_check());
+        assert!(board.king_in_check().0);
         let moves = board.legal_moves();
         assert_eq!(moves.len(), 7);
 
@@ -1278,7 +1284,7 @@ mod tests {
     #[test]
     fn mate() {
         let mut board = Board::from_fen("3k4/2R1Q3/8/8/8/8/8/5K2 b - - 0 1").unwrap();
-        assert!(board.king_in_check());
+        assert!(board.king_in_check().0);
         let moves = board.legal_moves();
         assert!(moves.is_empty());
         assert_eq!(board.status, Status::Checkmate(Color::White));
@@ -1287,7 +1293,7 @@ mod tests {
     #[test]
     fn stalemate() {
         let mut board = Board::from_fen("k7/2R5/8/8/1Q6/8/5p2/5K2 b - - 0 1").unwrap();
-        assert!(!board.king_in_check());
+        assert!(!board.king_in_check().0);
         let moves = board.legal_moves();
         assert!(moves.is_empty());
         assert_eq!(board.status, Status::Stalemate);
