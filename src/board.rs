@@ -38,6 +38,65 @@ pub struct CastlingRights {
     black_h_rook_moved: bool,
 }
 
+impl From<(Option<CastlingSide>, Option<CastlingSide>)> for CastlingRights {
+    fn from((white, black): (Option<CastlingSide>, Option<CastlingSide>)) -> Self {
+        let mut rules = CastlingRights::default();
+        match (white, black) {
+            (None, None) => {
+                rules.white_king_moved = true;
+                rules.black_king_moved = true;
+            }
+            (None, Some(side)) => {
+                rules.white_king_moved = true;
+                match side {
+                    CastlingSide::KingSide => {
+                        rules.black_a_rook_moved = true;
+                    }
+                    CastlingSide::QueenSide => {
+                        rules.black_h_rook_moved = true;
+                    }
+                    CastlingSide::Both => {}
+                }
+            }
+            (Some(side), None) => {
+                rules.black_king_moved = true;
+                match side {
+                    CastlingSide::KingSide => {
+                        rules.white_a_rook_moved = true;
+                    }
+                    CastlingSide::QueenSide => {
+                        rules.white_h_rook_moved = true;
+                    }
+                    CastlingSide::Both => {}
+                }
+            }
+            (Some(side), Some(side_black)) => {
+                match side {
+                    CastlingSide::KingSide => {
+                        rules.white_a_rook_moved = true;
+                    }
+                    CastlingSide::QueenSide => {
+                        rules.white_h_rook_moved = true;
+                    }
+                    CastlingSide::Both => {}
+                }
+
+                match side_black {
+                    CastlingSide::KingSide => {
+                        rules.black_a_rook_moved = true;
+                    }
+                    CastlingSide::QueenSide => {
+                        rules.black_h_rook_moved = true;
+                    }
+                    CastlingSide::Both => {}
+                }
+            }
+        }
+
+        rules
+    }
+}
+
 impl CastlingRights {
     fn king_moved(&self, side: Color) -> bool {
         match side {
@@ -136,11 +195,12 @@ impl Board {
         let mut moves = smallvec![];
 
         let (king_in_check, attacks_to_king) = self.king_in_check();
-        let opposite_side_attacks = self.attacks(
+        let attacks = self.attacks(
             self.pieces(self.side_to_move.opposite()),
             self.side_to_move.opposite(),
         );
-        let protected_pieces = self.protected_pieces(self.side_to_move.opposite());
+        let opposite_side_attacks = attacks.0;
+        let protected_pieces = attacks.1;
 
         for piece in PieceType::ALL {
             for sq in own_pieces[piece as usize] {
@@ -344,6 +404,39 @@ impl Board {
                 move_list.push(Move::new(sq, m, piece, target, MoveType::Quiet));
             }
         }
+    }
+
+    #[inline]
+    pub fn attacks(&self, side: [Bitboard; 6], color: Color) -> (Bitboard, Bitboard) {
+        let king = self.pieces(color.opposite())[PieceType::King as usize];
+        let (own, enemy) = match color {
+            Color::White => (self.white_pieces, self.black ^ king),
+            Color::Black => (self.black_pieces, self.white ^ king),
+        };
+        let mut attacks_bb = Bitboard(0);
+        let mut protected_bb = Bitboard(0);
+        for sq in side[PieceType::Pawn as usize] {
+            attacks_bb |= Pawn::pawn_attacks(color, sq);
+        }
+
+        let king_square = self.pieces(self.side_to_move)[PieceType::King as usize];
+        for piece in PieceType::ALL {
+            for sq in own[piece as usize] {
+                if piece != PieceType::Pawn {
+                    let bb = piece.pseudo_legal_moves(
+                        sq,
+                        color,
+                        self.all_pieces() ^ king_square,
+                        self.pieces_combined(color),
+                    );
+                    attacks_bb |= bb;
+                }
+                let bb = piece.pseudo_legal_moves(sq, color, self.all_pieces() ^ king, enemy)
+                    & self.pieces_combined(color);
+                protected_bb |= bb;
+            }
+        }
+        (attacks_bb, protected_bb)
     }
 
     #[inline]
@@ -573,29 +666,6 @@ impl Board {
         attacks_to_king_bitboard
     }
 
-    #[inline]
-    pub fn attacks(&self, side: [Bitboard; 6], color: Color) -> Bitboard {
-        let mut bb = Bitboard(0);
-
-        for sq in side[PieceType::Pawn as usize] {
-            bb |= Pawn::pawn_attacks(color, sq);
-        }
-        let king_square = self.pieces(self.side_to_move)[PieceType::King as usize];
-        for piece in PieceType::ALL.into_iter().skip(1) {
-            for sq in side[piece as usize] {
-                // bb |= piece.pseudo_legal_moves(sq, color, self.all_pieces(), self.black);
-                bb |= piece.pseudo_legal_moves(
-                    sq,
-                    color,
-                    self.all_pieces() ^ king_square,
-                    self.pieces_combined(self.side_to_move.opposite()),
-                );
-            }
-        }
-
-        bb
-    }
-
     pub fn available_en_passant(&self) -> SmallVec<[Move; 2]> {
         let mut en_passants = smallvec![];
         if let Some(m) = self.move_list.last() {
@@ -807,7 +877,7 @@ impl Board {
             self.pieces(self.side_to_move.opposite()),
             self.side_to_move.opposite(),
         );
-        self.available_castling(&opposite_side_attacks)
+        self.available_castling(&opposite_side_attacks.0)
     }
 
     #[inline]
@@ -917,8 +987,8 @@ impl From<FEN> for Board {
             } else {
                 Status::Draw(DrawReason::Halfmoves)
             },
-            // TODO: reflect here castling rights from FEN
-            castling_rights: CastlingRights::default(),
+            // TODO: respect here castling rights from FEN
+            castling_rights: CastlingRights::from(fen.castling_rules),
         }
     }
 }
@@ -1244,7 +1314,7 @@ mod tests {
     #[test]
     fn castling_rules_black() {
         let mut black_both_side =
-            Board::from_fen("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQq - 0 1").unwrap();
+            Board::from_fen("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b Kkq - 0 1").unwrap();
         let moves = black_both_side.legal_moves();
 
         let castling = black_both_side.get_available_castling();

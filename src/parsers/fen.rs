@@ -7,6 +7,7 @@ use std::{
 
 use crate::{
     board::Board,
+    moves::CastlingSide,
     piece::{Color, PieceType},
     Bitboard, Square,
 };
@@ -18,6 +19,7 @@ pub struct FEN {
     pub pieces: [[Bitboard; 6]; 2],
     pub active_color: Color,
     pub en_passant_target: Option<Square>,
+    pub castling_rules: (Option<CastlingSide>, Option<CastlingSide>),
     pub halfmove_clock: u16,
     pub fullmove_number: u16,
 }
@@ -51,7 +53,7 @@ impl FromStr for FEN {
         let pieces = parse_piece_placement(parts.next().unwrap())?;
         let active_color = parse_active_color(parts.next().unwrap())?;
         // Skip castling rights and posible en passant for now.
-        let _ = parts.next();
+        let castling_rules = parse_castling(parts.next().unwrap());
         let en_passant_target = parse_en_passant_target(parts.next().unwrap());
         let (halfmove_clock, fullmove_number) = parse_moves(parts.take(2))?;
 
@@ -59,6 +61,7 @@ impl FromStr for FEN {
             pieces,
             active_color,
             en_passant_target,
+            castling_rules,
             halfmove_clock,
             fullmove_number,
         })
@@ -190,11 +193,37 @@ fn parse_en_passant_target(input: &str) -> Option<Square> {
     }
 }
 
+fn parse_castling(input: &str) -> (Option<CastlingSide>, Option<CastlingSide>) {
+    match input {
+        "-" => (None, None),
+        "KQkq" => (Some(CastlingSide::Both), Some(CastlingSide::Both)),
+
+        "Kkq" => (Some(CastlingSide::KingSide), Some(CastlingSide::Both)),
+        "KQq" => (Some(CastlingSide::Both), Some(CastlingSide::QueenSide)),
+        "KQk" => (Some(CastlingSide::Both), Some(CastlingSide::KingSide)),
+        "Qkq" => (Some(CastlingSide::QueenSide), Some(CastlingSide::Both)),
+
+        "KQ" => (Some(CastlingSide::Both), None),
+        "kq" => (None, Some(CastlingSide::Both)),
+        "Qq" => (Some(CastlingSide::QueenSide), Some(CastlingSide::QueenSide)),
+        "Kk" => (Some(CastlingSide::KingSide), Some(CastlingSide::KingSide)),
+        "Qk" => (Some(CastlingSide::QueenSide), Some(CastlingSide::KingSide)),
+        "Kq" => (Some(CastlingSide::KingSide), Some(CastlingSide::QueenSide)),
+
+        "K" => (Some(CastlingSide::KingSide), None),
+        "Q" => (Some(CastlingSide::QueenSide), None),
+        "k" => (None, Some(CastlingSide::KingSide)),
+        "q" => (None, Some(CastlingSide::QueenSide)),
+        _ => (None, None),
+    }
+}
+
 impl From<Board> for FEN {
     fn from(board: Board) -> Self {
         Self {
             pieces: [board.white_pieces, board.black_pieces],
             active_color: board.side_to_move,
+            castling_rules: (None, None),
             en_passant_target: None,
             halfmove_clock: board.halfmoves,
             fullmove_number: board.move_list.len() as u16 / 2,
