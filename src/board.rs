@@ -466,6 +466,15 @@ impl Board {
         Err(IllegalMove)
     }
 
+    pub fn make_move_new(&mut self, m: Move) -> Result<Board, IllegalMove> {
+        let mut board = self.clone();
+        if board.legal_moves().contains(&m) {
+            unsafe { board.make_move_unchecked(m) }
+            return Ok(board);
+        }
+        Err(IllegalMove)
+    }
+
     /// Updates all the bitboards, which are involved in move, updates side to move and moves list.
     ///
     /// # Safety
@@ -903,6 +912,24 @@ impl Board {
             (true, false, false) => None,
             (false, _, _) => None,
         }
+    }
+}
+
+#[inline]
+pub fn perft(board: &mut Board, depth: usize) -> usize {
+    let moves = board.legal_moves();
+
+    let mut final_depth = 0;
+
+    if depth == 1 {
+        moves.len()
+    } else {
+        for m in moves {
+            let mut board = board.make_move_new(m).unwrap();
+            final_depth += perft(&mut board, depth - 1);
+        }
+
+        final_depth
     }
 }
 
@@ -1449,5 +1476,65 @@ mod tests {
         assert!(!moves
             .iter()
             .any(|m| m.capture.is_some() && m.piece == PieceType::King),);
+    }
+
+    #[test]
+    fn perft_starting_position_depth_1() {
+        let mut board = Board::default();
+        assert_eq!(perft(&mut board, 1), 20);
+    }
+
+    #[test]
+    fn perft_starting_position_depth_2() {
+        let mut board = Board::default();
+        assert_eq!(perft(&mut board, 2), 400);
+    }
+
+    #[test]
+    fn perft_starting_position_depth_3() {
+        let mut board = Board::default();
+        assert_eq!(perft(&mut board, 3), 8902);
+    }
+
+    #[test]
+    fn perft_starting_position_depth_4() {
+        let mut board = Board::default();
+        assert_eq!(perft(&mut board, 4), 197_281);
+    }
+
+    #[test]
+    fn perft_starting_position_depth_5() {
+        let mut board = Board::default();
+        assert_eq!(perft(&mut board, 5), 4_865_609);
+    }
+
+    #[test]
+    fn perft_kiwipete_depth_1() {
+        let mut board =
+            Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
+                .unwrap();
+        assert_eq!(perft(&mut board, 1), 48);
+    }
+
+    #[ignore = "2038, expected to be 2039"]
+    #[test]
+    fn perft_kiwipete_depth_2() {
+        let mut board =
+            Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
+                .unwrap();
+        assert_eq!(perft(&mut board, 2), 2039);
+    }
+
+    #[test]
+    fn position_3_depth_1() {
+        let mut board = Board::from_fen("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1").unwrap();
+        assert_eq!(perft(&mut board, 1), 14);
+    }
+
+    #[ignore = "193, expected to be 191"]
+    #[test]
+    fn position_3_depth_2() {
+        let mut board = Board::from_fen("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1").unwrap();
+        assert_eq!(perft(&mut board, 2), 191);
     }
 }
