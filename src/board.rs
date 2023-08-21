@@ -194,7 +194,6 @@ impl Board {
         };
         let mut moves = smallvec![];
 
-        let (king_in_check, attacks_to_king) = self.king_in_check();
         let attacks = self.attacks(
             self.pieces(self.side_to_move.opposite()),
             self.side_to_move.opposite(),
@@ -203,23 +202,27 @@ impl Board {
         let protected_pieces = attacks.1;
         let ksq = own_pieces[PieceType::King as usize].lsb_square();
 
-        // let check_mask = if checkers.0.count_ones() == 1 {
-        //     between(checkers.lsb_square(), ksq) ^ checkers
-        // } else {
-        //     Bitboard::universe()
-        // };
-        // if checkers.0.count_ones() > 1 {
-        //
-        //     let bb = PieceType::King.pseudo_legal_moves(
-        //         ksq,
-        //         self.side_to_move,
-        //         self.all_pieces(),
-        //         own_combined,
-        //     ) & opposite_side_attacks;
-        //
-        //     self.fill_move_list(&mut moves, ksq, bb, PieceType::King);
-        //     return moves;
-        // }
+        let check_mask = if checkers.0.count_ones() == 1 {
+            between(checkers.lsb_square(), ksq) ^ checkers
+        } else {
+            Bitboard::universe()
+        };
+        if checkers.0.count_ones() > 1 {
+            let mut bb = PieceType::King.pseudo_legal_moves(
+                ksq,
+                self.side_to_move,
+                self.all_pieces(),
+                own_combined,
+            );
+
+            bb = (bb ^ opposite_side_attacks) & bb;
+            bb = (bb ^ protected_pieces) & bb;
+
+            self.fill_move_list(&mut moves, ksq, bb, PieceType::King);
+
+            self.set_status(moves.len(), checkers.0.count_ones() != 0);
+            return moves;
+        }
         for piece in PieceType::ALL {
             for sq in own_pieces[piece as usize] {
                 let mut bb = piece.pseudo_legal_moves(
@@ -232,16 +235,12 @@ impl Board {
                     continue;
                 }
 
-                if king_in_check {
+                if checkers.0.count_ones() == 1 {
                     if piece == PieceType::King {
                         bb = (bb ^ opposite_side_attacks) & bb;
                         bb = (bb ^ protected_pieces) & bb;
                     } else {
-                        bb &= if attacks_to_king.1 {
-                            Bitboard(0)
-                        } else {
-                            attacks_to_king.0
-                        };
+                        bb &= check_mask;
                     }
                 } else if piece == PieceType::King {
                     bb = (bb ^ opposite_side_attacks) & bb;
@@ -261,11 +260,11 @@ impl Board {
             }
         }
 
-        if !king_in_check {
+        if checkers.0.count_ones() == 0 {
             self.castling_rules(&mut moves, &opposite_side_attacks);
         }
         moves.extend(self.available_en_passant());
-        self.set_status(moves.len(), king_in_check);
+        self.set_status(moves.len(), checkers.0.count_ones() != 0);
         moves
     }
 
