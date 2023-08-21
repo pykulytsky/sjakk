@@ -186,7 +186,7 @@ impl Board {
     }
 
     #[inline]
-    pub fn legal_moves(&mut self) -> SmallVec<[Move; 32]> {
+    pub fn legal_moves(&mut self) -> SmallVec<[Move; 18]> {
         let pinned_bb = self.find_pinned();
         let (own_pieces, own_combined) = match self.side_to_move {
             Color::White => (self.white_pieces, self.white),
@@ -248,11 +248,10 @@ impl Board {
         }
         moves.extend(self.available_en_passant());
         self.set_status(moves.len(), king_in_check);
-
         moves
     }
 
-    fn castling_rules(&self, moves: &mut SmallVec<[Move; 32]>, opposite_side_attacks: &Bitboard) {
+    fn castling_rules(&self, moves: &mut SmallVec<[Move; 18]>, opposite_side_attacks: &Bitboard) {
         match (
             self.side_to_move,
             self.available_castling(opposite_side_attacks),
@@ -344,7 +343,7 @@ impl Board {
     #[inline]
     fn fill_move_list(
         &self,
-        move_list: &mut SmallVec<[Move; 32]>,
+        move_list: &mut SmallVec<[Move; 18]>,
         sq: Square,
         moves: Bitboard,
         piece: PieceType,
@@ -466,13 +465,10 @@ impl Board {
         Err(IllegalMove)
     }
 
-    pub fn make_move_new(&mut self, m: Move) -> Result<Board, IllegalMove> {
+    pub fn make_move_new(&mut self, m: Move) -> Board {
         let mut board = self.clone();
-        if board.legal_moves().contains(&m) {
-            unsafe { board.make_move_unchecked(m) }
-            return Ok(board);
-        }
-        Err(IllegalMove)
+        unsafe { board.make_move_unchecked(m) }
+        return board;
     }
 
     /// Updates all the bitboards, which are involved in move, updates side to move and moves list.
@@ -925,7 +921,7 @@ pub fn perft(board: &mut Board, depth: usize) -> usize {
         moves.len()
     } else {
         for m in moves {
-            let mut board = board.make_move_new(m).unwrap();
+            let mut board = board.make_move_new(m);
             final_depth += perft(&mut board, depth - 1);
         }
 
