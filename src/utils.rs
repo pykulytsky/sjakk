@@ -1,7 +1,16 @@
-use crate::constants::{DEBRUIJ_M, DEBRUIJ_T};
+use crate::between::BETWEEN;
+use crate::{
+    constants::{DEBRUIJ_M, DEBRUIJ_T},
+    Bitboard, Square,
+};
 
 pub const POSITIVE_RAYS: [usize; 4] = [0, 1, 2, 7];
 pub const NEGATIVE_RAYS: [usize; 4] = [3, 4, 5, 6];
+
+#[inline]
+pub fn between(sq1: Square, sq2: Square) -> Bitboard {
+    BETWEEN[sq1.0 as usize][sq2.0 as usize]
+}
 
 #[inline(always)]
 pub fn bit_scan_forward(bits: u64) -> u8 {

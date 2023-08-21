@@ -14,13 +14,16 @@ name = "board"
 harness = false
 
 [[bench]]
+name = "perft"
+harness = false
+
+[[bench]]
 name = "pseudo_legal"
 harness = false
 
 [dependencies]
 rand = "0.8.5"
-strum = "0.25.0"
-strum_macros = "0.25.1"
+smallvec = "1.11.0"
 thiserror = "1.0.44"
 
 [dev-dependencies]

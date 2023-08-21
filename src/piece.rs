@@ -1,7 +1,5 @@
 use std::mem::transmute;
 
-use strum_macros::EnumIter;
-
 use crate::{
     constants::{CLEAR_FILE, MASK_RANK},
     rays::RAY_ATTACKS,
@@ -35,7 +33,7 @@ impl ToString for Color {
 
 /// Represents all possible pieces in chess, can be used in [`Board`] or [`Position`] to index
 /// required bitboard by piece type.
-#[derive(Debug, EnumIter, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum PieceType {
     Pawn,
     Rook,
@@ -46,6 +44,14 @@ pub enum PieceType {
 }
 
 impl PieceType {
+    pub const ALL: [Self; 6] = [
+        Self::Pawn,
+        Self::Rook,
+        Self::Knight,
+        Self::Bishop,
+        Self::Queen,
+        Self::King,
+    ];
     /// Generates pseudo legal moves, for given piece.
     pub fn pseudo_legal_moves(
         &self,
@@ -143,9 +149,7 @@ impl Piece for Pawn {
         let enemy = occupied ^ own;
         let valid_attacks = pawn_attacks & enemy.0;
 
-        let valid_moves = valid_moves | valid_attacks;
-
-        valid_moves
+        valid_moves | valid_attacks
     }
 }
 

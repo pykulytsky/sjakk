@@ -1,15 +1,16 @@
 use rand::seq::SliceRandom;
-use std::str::FromStr;
+use smallvec::{smallvec, SmallVec};
+use thiserror::Error;
 
 use crate::{
     constants::{self, CLEAR_FILE},
     moves::{CastlingSide, Move, MoveType},
     parsers::fen::{self, FENParseError, FEN},
     piece::{Color, Pawn, PieceType},
-    rays::RAY_ATTACKS,
+    rays::{BISHOP_ATTACKS, RAY_ATTACKS, ROOK_ATTACKS},
+    utils::between,
     Bitboard, Rank, Square,
 };
-use strum::IntoEnumIterator;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub enum Status {
@@ -25,25 +26,128 @@ pub enum DrawReason {
     Repetition,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Default)]
+pub struct CastlingRights {
+    white_king_moved: bool,
+    black_king_moved: bool,
+
+    white_a_rook_moved: bool,
+    white_h_rook_moved: bool,
+
+    black_a_rook_moved: bool,
+    black_h_rook_moved: bool,
+}
+
+impl From<(Option<CastlingSide>, Option<CastlingSide>)> for CastlingRights {
+    fn from((white, black): (Option<CastlingSide>, Option<CastlingSide>)) -> Self {
+        let mut rules = CastlingRights::default();
+        match (white, black) {
+            (None, None) => {
+                rules.white_king_moved = true;
+                rules.black_king_moved = true;
+            }
+            (None, Some(side)) => {
+                rules.white_king_moved = true;
+                match side {
+                    CastlingSide::KingSide => {
+                        rules.black_a_rook_moved = true;
+                    }
+                    CastlingSide::QueenSide => {
+                        rules.black_h_rook_moved = true;
+                    }
+                    CastlingSide::Both => {}
+                }
+            }
+            (Some(side), None) => {
+                rules.black_king_moved = true;
+                match side {
+                    CastlingSide::KingSide => {
+                        rules.white_a_rook_moved = true;
+                    }
+                    CastlingSide::QueenSide => {
+                        rules.white_h_rook_moved = true;
+                    }
+                    CastlingSide::Both => {}
+                }
+            }
+            (Some(side), Some(side_black)) => {
+                match side {
+                    CastlingSide::KingSide => {
+                        rules.white_a_rook_moved = true;
+                    }
+                    CastlingSide::QueenSide => {
+                        rules.white_h_rook_moved = true;
+                    }
+                    CastlingSide::Both => {}
+                }
+
+                match side_black {
+                    CastlingSide::KingSide => {
+                        rules.black_a_rook_moved = true;
+                    }
+                    CastlingSide::QueenSide => {
+                        rules.black_h_rook_moved = true;
+                    }
+                    CastlingSide::Both => {}
+                }
+            }
+        }
+
+        rules
+    }
+}
+
+impl CastlingRights {
+    fn king_moved(&self, side: Color) -> bool {
+        match side {
+            Color::White => self.white_king_moved,
+            Color::Black => self.black_king_moved,
+        }
+    }
+
+    fn a_rook_moved(&self, side: Color) -> bool {
+        match side {
+            Color::White => self.white_a_rook_moved,
+            Color::Black => self.black_a_rook_moved,
+        }
+    }
+    fn h_rook_moved(&self, side: Color) -> bool {
+        match side {
+            Color::White => self.white_h_rook_moved,
+            Color::Black => self.black_h_rook_moved,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq)]
 pub struct Board {
     pub white_pieces: [Bitboard; 6],
     pub black_pieces: [Bitboard; 6],
-    pub move_list: Vec<Move>,
+    pub white: Bitboard,
+    pub black: Bitboard,
+    pub move_list: SmallVec<[Move; 256]>,
     pub halfmoves: u16,
     pub side_to_move: Color,
     pub status: Status,
+    pub castling_rights: CastlingRights,
 }
+
+#[derive(Error, Debug, PartialEq, Eq)]
+#[error("Illegal move")]
+pub struct IllegalMove;
 
 impl Board {
     pub fn new(white_pieces: [Bitboard; 6], black_pieces: [Bitboard; 6]) -> Self {
         Self {
             white_pieces,
             black_pieces,
-            move_list: vec![],
+            white: Self::combine(white_pieces),
+            black: Self::combine(black_pieces),
+            move_list: smallvec![],
             halfmoves: 0,
             side_to_move: Color::White,
             status: Status::Ongoing,
+            castling_rights: CastlingRights::default(),
         }
     }
 
@@ -53,27 +157,16 @@ impl Board {
     }
 
     #[inline]
-    pub fn white(&self) -> Bitboard {
-        self.white_pieces
-            .into_iter()
-            .reduce(|acc, next| acc | next)
-            .unwrap()
-    }
-
-    #[inline]
-    pub fn black(&self) -> Bitboard {
-        self.black_pieces
-            .into_iter()
-            .reduce(|bb, next| bb | next)
-            .unwrap()
+    pub fn combine(bb: [Bitboard; 6]) -> Bitboard {
+        bb.into_iter().reduce(|acc, next| acc | next).unwrap()
     }
 
     #[inline]
     pub fn all_pieces(&self) -> Bitboard {
-        self.white() | self.black()
+        self.white | self.black
     }
 
-    pub fn pieces(&self, color: Color) -> [Bitboard; 6] {
+    fn pieces(&self, color: Color) -> [Bitboard; 6] {
         match color {
             Color::White => self.white_pieces,
             Color::Black => self.black_pieces,
@@ -82,8 +175,8 @@ impl Board {
 
     pub fn pieces_combined(&self, color: Color) -> Bitboard {
         match color {
-            Color::White => self.white(),
-            Color::Black => self.black(),
+            Color::White => self.white,
+            Color::Black => self.black,
         }
     }
 
@@ -93,164 +186,182 @@ impl Board {
     }
 
     #[inline]
-    pub fn legal_moves(&mut self) -> Vec<Move> {
+    pub fn legal_moves(&mut self) -> SmallVec<[Move; 18]> {
+        let (pinned_bb, checkers) = self.find_pinned();
         let (own_pieces, own_combined) = match self.side_to_move {
-            Color::White => (self.white_pieces, self.white()),
-            Color::Black => (self.black_pieces, self.black()),
+            Color::White => (self.white_pieces, self.white),
+            Color::Black => (self.black_pieces, self.black),
         };
-        let mut moves = vec![];
-        if self.king_in_check() {
-            for piece in PieceType::iter() {
-                for sq in own_pieces[piece as usize] {
-                    let mut bb = piece.pseudo_legal_moves(
-                        sq,
-                        self.side_to_move,
-                        self.all_pieces(),
-                        own_combined,
-                    );
+        let mut moves = smallvec![];
 
+        let (king_in_check, attacks_to_king) = self.king_in_check();
+        let attacks = self.attacks(
+            self.pieces(self.side_to_move.opposite()),
+            self.side_to_move.opposite(),
+        );
+        let opposite_side_attacks = attacks.0;
+        let protected_pieces = attacks.1;
+        let ksq = own_pieces[PieceType::King as usize].lsb_square();
+
+        // let check_mask = if checkers.0.count_ones() == 1 {
+        //     between(checkers.lsb_square(), ksq) ^ checkers
+        // } else {
+        //     Bitboard::universe()
+        // };
+        // if checkers.0.count_ones() > 1 {
+        //
+        //     let bb = PieceType::King.pseudo_legal_moves(
+        //         ksq,
+        //         self.side_to_move,
+        //         self.all_pieces(),
+        //         own_combined,
+        //     ) & opposite_side_attacks;
+        //
+        //     self.fill_move_list(&mut moves, ksq, bb, PieceType::King);
+        //     return moves;
+        // }
+        for piece in PieceType::ALL {
+            for sq in own_pieces[piece as usize] {
+                let mut bb = piece.pseudo_legal_moves(
+                    sq,
+                    self.side_to_move,
+                    self.all_pieces(),
+                    own_combined,
+                );
+                if bb == 0 {
+                    continue;
+                }
+
+                if king_in_check {
                     if piece == PieceType::King {
-                        let opposite_side_attacks = self.attacks(
-                            self.pieces(self.side_to_move.opposite()),
-                            self.side_to_move.opposite(),
-                        );
                         bb = (bb ^ opposite_side_attacks) & bb;
-                        bb = (bb ^ self.protected_pieces(self.side_to_move.opposite())) & bb;
+                        bb = (bb ^ protected_pieces) & bb;
                     } else {
-                        let attacks_to_king = self.attacks_to_king(self.all_pieces(), true);
-                        bb = bb
-                            & if attacks_to_king.1 {
-                                Bitboard(0)
-                            } else {
-                                attacks_to_king.0
-                            };
-
-                        if let Some(pin) = self.pinned(sq) {
-                            bb &= pin;
-                        }
+                        bb &= if attacks_to_king.1 {
+                            Bitboard(0)
+                        } else {
+                            attacks_to_king.0
+                        };
                     }
+                } else if piece == PieceType::King {
+                    bb = (bb ^ opposite_side_attacks) & bb;
+                    bb = (bb ^ protected_pieces) & bb;
+                }
 
+                let pinned = pinned_bb & Bitboard::from_square(sq) != 0;
+                if pinned {
+                    let king_square =
+                        self.pieces(self.side_to_move)[PieceType::King as usize].lsb_square();
+                    let pin = self.get_ray(king_square, sq);
+                    bb &= pin;
+                }
+                if bb != 0 {
                     self.fill_move_list(&mut moves, sq, bb, piece);
                 }
-            }
-        } else {
-            for piece in PieceType::iter() {
-                for sq in own_pieces[piece as usize] {
-                    let mut bb = piece.pseudo_legal_moves(
-                        sq,
-                        self.side_to_move,
-                        self.all_pieces(),
-                        own_combined,
-                    );
-                    if let Some(pin) = self.pinned(sq) {
-                        bb &= pin;
-                    }
-                    if piece == PieceType::King {
-                        let opposite_side_attacks = self.attacks(
-                            self.pieces(self.side_to_move.opposite()),
-                            self.side_to_move.opposite(),
-                        );
-                        bb = (bb ^ opposite_side_attacks) & bb;
-                        bb = (bb ^ self.protected_pieces(self.side_to_move.opposite())) & bb;
-                    }
-
-                    self.fill_move_list(&mut moves, sq, bb, piece);
-                }
-            }
-            match (self.side_to_move, self.available_castling()) {
-                (Color::White, Some(castling)) => match castling {
-                    CastlingSide::KingSide => {
-                        moves.push(Move::new(
-                            Square::from_str("e1").unwrap(),
-                            Square::from_str("g1").unwrap(),
-                            PieceType::King,
-                            None,
-                            MoveType::Castling { side: castling },
-                        ));
-                    }
-                    CastlingSide::QueenSide => {
-                        moves.push(Move::new(
-                            Square::from_str("e1").unwrap(),
-                            Square::from_str("c1").unwrap(),
-                            PieceType::King,
-                            None,
-                            MoveType::Castling { side: castling },
-                        ));
-                    }
-                    CastlingSide::Both => {
-                        moves.push(Move::new(
-                            Square::from_str("e1").unwrap(),
-                            Square::from_str("g1").unwrap(),
-                            PieceType::King,
-                            None,
-                            MoveType::Castling {
-                                side: CastlingSide::KingSide,
-                            },
-                        ));
-                        moves.push(Move::new(
-                            Square::from_str("e1").unwrap(),
-                            Square::from_str("c1").unwrap(),
-                            PieceType::King,
-                            None,
-                            MoveType::Castling {
-                                side: CastlingSide::QueenSide,
-                            },
-                        ));
-                    }
-                },
-                (Color::Black, Some(castling)) => match castling {
-                    CastlingSide::KingSide => {
-                        moves.push(Move::new(
-                            Square::from_str("e8").unwrap(),
-                            Square::from_str("g8").unwrap(),
-                            PieceType::King,
-                            None,
-                            MoveType::Castling { side: castling },
-                        ));
-                    }
-                    CastlingSide::QueenSide => {
-                        moves.push(Move::new(
-                            Square::from_str("e8").unwrap(),
-                            Square::from_str("c8").unwrap(),
-                            PieceType::King,
-                            None,
-                            MoveType::Castling { side: castling },
-                        ));
-                    }
-                    CastlingSide::Both => {
-                        moves.push(Move::new(
-                            Square::from_str("e8").unwrap(),
-                            Square::from_str("g8").unwrap(),
-                            PieceType::King,
-                            None,
-                            MoveType::Castling {
-                                side: CastlingSide::KingSide,
-                            },
-                        ));
-                        moves.push(Move::new(
-                            Square::from_str("e8").unwrap(),
-                            Square::from_str("c8").unwrap(),
-                            PieceType::King,
-                            None,
-                            MoveType::Castling {
-                                side: CastlingSide::QueenSide,
-                            },
-                        ));
-                    }
-                },
-                _ => {}
             }
         }
-        moves.extend(self.available_en_passant());
-        self.set_status(moves.len());
 
+        if !king_in_check {
+            self.castling_rules(&mut moves, &opposite_side_attacks);
+        }
+        moves.extend(self.available_en_passant());
+        self.set_status(moves.len(), king_in_check);
         moves
+    }
+
+    fn castling_rules(&self, moves: &mut SmallVec<[Move; 18]>, opposite_side_attacks: &Bitboard) {
+        match (
+            self.side_to_move,
+            self.available_castling(opposite_side_attacks),
+        ) {
+            (Color::White, Some(castling)) => match castling {
+                CastlingSide::KingSide => {
+                    moves.push(Move::new(
+                        Square::E1,
+                        Square::G1,
+                        PieceType::King,
+                        None,
+                        MoveType::Castling { side: castling },
+                    ));
+                }
+                CastlingSide::QueenSide => {
+                    moves.push(Move::new(
+                        Square::E1,
+                        Square::C1,
+                        PieceType::King,
+                        None,
+                        MoveType::Castling { side: castling },
+                    ));
+                }
+                CastlingSide::Both => {
+                    moves.push(Move::new(
+                        Square::E1,
+                        Square::G1,
+                        PieceType::King,
+                        None,
+                        MoveType::Castling {
+                            side: CastlingSide::KingSide,
+                        },
+                    ));
+                    moves.push(Move::new(
+                        Square::E1,
+                        Square::C1,
+                        PieceType::King,
+                        None,
+                        MoveType::Castling {
+                            side: CastlingSide::QueenSide,
+                        },
+                    ));
+                }
+            },
+            (Color::Black, Some(castling)) => match castling {
+                CastlingSide::KingSide => {
+                    moves.push(Move::new(
+                        Square::E8,
+                        Square::G8,
+                        PieceType::King,
+                        None,
+                        MoveType::Castling { side: castling },
+                    ));
+                }
+                CastlingSide::QueenSide => {
+                    moves.push(Move::new(
+                        Square::E8,
+                        Square::C8,
+                        PieceType::King,
+                        None,
+                        MoveType::Castling { side: castling },
+                    ));
+                }
+                CastlingSide::Both => {
+                    moves.push(Move::new(
+                        Square::E8,
+                        Square::G8,
+                        PieceType::King,
+                        None,
+                        MoveType::Castling {
+                            side: CastlingSide::KingSide,
+                        },
+                    ));
+                    moves.push(Move::new(
+                        Square::E8,
+                        Square::C8,
+                        PieceType::King,
+                        None,
+                        MoveType::Castling {
+                            side: CastlingSide::QueenSide,
+                        },
+                    ));
+                }
+            },
+            _ => {}
+        }
     }
 
     #[inline]
     fn fill_move_list(
         &self,
-        move_list: &mut Vec<Move>,
+        move_list: &mut SmallVec<[Move; 18]>,
         sq: Square,
         moves: Bitboard,
         piece: PieceType,
@@ -313,14 +424,47 @@ impl Board {
     }
 
     #[inline]
+    pub fn attacks(&self, side: [Bitboard; 6], color: Color) -> (Bitboard, Bitboard) {
+        let king = self.pieces(color.opposite())[PieceType::King as usize];
+        let (own, enemy) = match color {
+            Color::White => (self.white_pieces, self.black ^ king),
+            Color::Black => (self.black_pieces, self.white ^ king),
+        };
+        let mut attacks_bb = Bitboard(0);
+        let mut protected_bb = Bitboard(0);
+        for sq in side[PieceType::Pawn as usize] {
+            attacks_bb |= Pawn::pawn_attacks(color, sq);
+        }
+
+        let king_square = self.pieces(self.side_to_move)[PieceType::King as usize];
+        for piece in PieceType::ALL {
+            for sq in own[piece as usize] {
+                if piece != PieceType::Pawn {
+                    let bb = piece.pseudo_legal_moves(
+                        sq,
+                        color,
+                        self.all_pieces() ^ king_square,
+                        self.pieces_combined(color),
+                    );
+                    attacks_bb |= bb;
+                }
+                let bb = piece.pseudo_legal_moves(sq, color, self.all_pieces() ^ king, enemy)
+                    & self.pieces_combined(color);
+                protected_bb |= bb;
+            }
+        }
+        (attacks_bb, protected_bb)
+    }
+
+    #[inline]
     pub fn protected_pieces(&self, color: Color) -> Bitboard {
         let king = self.pieces(color.opposite())[PieceType::King as usize];
         let (own, enemy) = match color {
-            Color::White => (self.white_pieces, self.black() ^ king),
-            Color::Black => (self.black_pieces, self.white() ^ king),
+            Color::White => (self.white_pieces, self.black ^ king),
+            Color::Black => (self.black_pieces, self.white ^ king),
         };
         let mut protected_bb = Bitboard(0);
-        for piece in PieceType::iter() {
+        for piece in PieceType::ALL {
             for sq in own[piece as usize] {
                 let bb = piece.pseudo_legal_moves(sq, color, self.all_pieces() ^ king, enemy)
                     & self.pieces_combined(color);
@@ -330,13 +474,19 @@ impl Board {
         protected_bb
     }
 
-    pub fn make_move(&mut self, m: Move) -> Result<(), ()> {
+    pub fn make_move(&mut self, m: Move) -> Result<(), IllegalMove> {
         if self.legal_moves().contains(&m) {
             unsafe { self.make_move_unchecked(m) }
             return Ok(());
-        } else {
-            return Err(());
         }
+
+        Err(IllegalMove)
+    }
+
+    pub fn make_move_new(&mut self, m: Move) -> Board {
+        let mut board = self.clone();
+        unsafe { board.make_move_unchecked(m) }
+        return board;
     }
 
     /// Updates all the bitboards, which are involved in move, updates side to move and moves list.
@@ -352,9 +502,57 @@ impl Board {
                 self.status = Status::Draw(DrawReason::Halfmoves);
             }
         }
+        // upadte castling rights
+        match m.piece {
+            PieceType::Rook => match m.from {
+                Square::A1 => {
+                    self.castling_rights.white_a_rook_moved = true;
+                }
+                Square::A8 => {
+                    self.castling_rights.black_a_rook_moved = true;
+                }
+                Square::H1 => {
+                    self.castling_rights.white_h_rook_moved = true;
+                }
+                Square::H8 => {
+                    self.castling_rights.black_h_rook_moved = true;
+                }
+                _ => {}
+            },
+            PieceType::King => match m.from {
+                Square::E1 => {
+                    self.castling_rights.white_king_moved = true;
+                }
+                Square::E8 => {
+                    self.castling_rights.black_king_moved = true;
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+
+        if let Some(PieceType::Rook) = m.capture {
+            match m.to {
+                Square::A1 => {
+                    self.castling_rights.white_a_rook_moved = true;
+                }
+                Square::A8 => {
+                    self.castling_rights.black_a_rook_moved = true;
+                }
+                Square::H1 => {
+                    self.castling_rights.white_h_rook_moved = true;
+                }
+                Square::H8 => {
+                    self.castling_rights.black_h_rook_moved = true;
+                }
+                _ => {}
+            }
+        }
         m.update_position(
             &mut self.white_pieces,
             &mut self.black_pieces,
+            &mut self.white,
+            &mut self.black,
             self.side_to_move,
         );
         self.side_to_move = self.side_to_move.opposite();
@@ -378,7 +576,7 @@ impl Board {
             ),
         };
         // Skip the [`PieceType::King`], since you can not check with king.
-        for piece in PieceType::iter().take(5) {
+        for piece in PieceType::ALL.into_iter().take(5) {
             for sq in opposite_side[piece as usize] {
                 let bb =
                     piece.pseudo_legal_moves(sq, color, all_pieces, self.pieces_combined(color));
@@ -395,14 +593,12 @@ impl Board {
                             attacks_to_king_bitboard |= attacks
                         }
                     }
-                } else {
-                    if bb.0 & king_square.0 != 0 {
-                        checks += 1;
-                        if with_attacker {
-                            attacks_to_king_bitboard |= Bitboard::from_square(sq);
-                        } else {
-                            attacks_to_king_bitboard |= bb | Bitboard::from_square(sq);
-                        }
+                } else if bb.0 & king_square.0 != 0 {
+                    checks += 1;
+                    if with_attacker {
+                        attacks_to_king_bitboard |= (bb & king_square) | Bitboard::from_square(sq);
+                    } else {
+                        attacks_to_king_bitboard |= bb & king_square;
                     }
                 }
             }
@@ -411,21 +607,28 @@ impl Board {
         (attacks_to_king_bitboard, checks > 1)
     }
 
+    /// Returns true if king in check, second tuple contains [`Bitboard`] with all the attacks to
+    /// king with attacking pieces, as well as boolean value which indicates if king is in double
+    /// check.
     #[inline]
-    pub fn king_in_check(&self) -> bool {
+    pub fn king_in_check(&self) -> (bool, (Bitboard, bool)) {
         let king = match self.side_to_move {
             Color::White => self.white_pieces[PieceType::King as usize],
             Color::Black => self.black_pieces[PieceType::King as usize],
         };
 
-        (king.0 & self.attacks_to_king(self.all_pieces(), false).0 .0) != 0
+        let attacks = self.attacks_to_king(self.all_pieces(), true);
+        let attacks_to_king =
+            attacks.0 & !(attacks.0 & self.pieces_combined(self.side_to_move.opposite()));
+
+        ((king & attacks_to_king) != 0, attacks)
     }
 
     /// Returns pinned ray, for given square, if piece on this square is pinned.
     /// This method checks only absolute pins, since only absolute pins are required for legal move
     /// generation.
     #[inline]
-    pub fn pinned(&self, square: Square) -> Option<Bitboard> {
+    fn pinned(&self, square: Square) -> Option<Bitboard> {
         // let attacks = self.attacks_to_king(self.all_pieces() ^ Bitboard::from_square(square), true);
 
         let attacks = self.pinned_ray(
@@ -459,24 +662,25 @@ impl Board {
                 Color::White,
             ),
         };
-        // Skip the [`PieceType::King`], since you can not check with king.
-        for piece in PieceType::iter().take(5) {
-            for sq in opposite_side[piece as usize] {
+        let rays_to_king = RAY_ATTACKS[king_square.lsb_square().0 as usize]
+            .into_iter()
+            .reduce(|acc, next| acc | next)
+            .unwrap();
+        for piece in [1, 3, 4] {
+            let piece = PieceType::from_index(piece);
+            for sq in opposite_side[piece as usize] & rays_to_king {
                 let bb =
                     piece.pseudo_legal_moves(sq, color, all_pieces, self.pieces_combined(color));
-                if piece != PieceType::Pawn && piece != PieceType::Knight {
-                    for ray in 0..8 {
-                        if RAY_ATTACKS[sq.0 as usize][ray] & Bitboard::from_square(square).0 != 0
-                            && RAY_ATTACKS[sq.0 as usize][ray] & bb.0 & king_square.0 != 0
-                        {
-                            let attacks = if with_attacker {
-                                (RAY_ATTACKS[sq.0 as usize][ray] & bb.0)
-                                    | Bitboard::from_square(sq).0
-                            } else {
-                                RAY_ATTACKS[sq.0 as usize][ray] & bb.0
-                            };
-                            attacks_to_king_bitboard |= attacks
-                        }
+                for ray in 0..8 {
+                    if RAY_ATTACKS[sq.0 as usize][ray] & Bitboard::from_square(square).0 != 0
+                        && RAY_ATTACKS[sq.0 as usize][ray] & bb.0 & king_square.0 != 0
+                    {
+                        let attacks = if with_attacker {
+                            (RAY_ATTACKS[sq.0 as usize][ray] & bb.0) | Bitboard::from_square(sq).0
+                        } else {
+                            RAY_ATTACKS[sq.0 as usize][ray] & bb.0
+                        };
+                        attacks_to_king_bitboard |= attacks
                     }
                 }
             }
@@ -485,31 +689,8 @@ impl Board {
         attacks_to_king_bitboard
     }
 
-    #[inline]
-    pub fn attacks(&self, opposite_side: [Bitboard; 6], opposite_color: Color) -> Bitboard {
-        let mut bb = Bitboard(0);
-
-        for sq in opposite_side[PieceType::Pawn as usize] {
-            bb |= Pawn::pawn_attacks(opposite_color, sq);
-        }
-        let king_square = self.pieces(self.side_to_move)[PieceType::King as usize];
-        for piece in PieceType::iter().skip(1) {
-            for sq in opposite_side[piece as usize] {
-                bb |= piece.pseudo_legal_moves(sq, opposite_color, self.all_pieces(), self.black());
-                bb |= piece.pseudo_legal_moves(
-                    sq,
-                    opposite_color,
-                    self.all_pieces() ^ king_square,
-                    self.black(),
-                );
-            }
-        }
-
-        bb
-    }
-
-    pub fn available_en_passant(&self) -> Vec<Move> {
-        let mut en_passants = vec![];
+    pub fn available_en_passant(&self) -> SmallVec<[Move; 2]> {
+        let mut en_passants = smallvec![];
         if let Some(m) = self.move_list.last() {
             let prev_move_side = self.side_to_move.opposite();
             if prev_move_side == Color::White
@@ -529,20 +710,15 @@ impl Board {
                         let captures_on: Square = Bitboard(left_attack.0).into();
 
                         let attacks_to_king = self.attacks_to_king(self.all_pieces(), true);
-                        left_attack = left_attack
-                            & if attacks_to_king.1 {
-                                Bitboard(0)
-                            } else {
-                                if attacks_to_king.0 == 0 {
-                                    Bitboard::universe()
-                                } else {
-                                    if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
-                                        Bitboard(0)
-                                    } else {
-                                        Bitboard::universe()
-                                    }
-                                }
-                            };
+                        left_attack &= if attacks_to_king.1 {
+                            Bitboard(0)
+                        } else if attacks_to_king.0 == 0 {
+                            Bitboard::universe()
+                        } else if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
+                            Bitboard(0)
+                        } else {
+                            Bitboard::universe()
+                        };
 
                         if let Some(pin) = self.pinned(p) {
                             if Bitboard::from_square(to) & pin == 0 {
@@ -565,20 +741,15 @@ impl Board {
                         let captures_on: Square = Bitboard(right_attack.0).into();
 
                         let attacks_to_king = self.attacks_to_king(self.all_pieces(), true);
-                        right_attack = right_attack
-                            & if attacks_to_king.1 {
-                                Bitboard(0)
-                            } else {
-                                if attacks_to_king.0 == 0 {
-                                    Bitboard::universe()
-                                } else {
-                                    if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
-                                        Bitboard(0)
-                                    } else {
-                                        Bitboard::universe()
-                                    }
-                                }
-                            };
+                        right_attack &= if attacks_to_king.1 {
+                            Bitboard(0)
+                        } else if attacks_to_king.0 == 0 {
+                            Bitboard::universe()
+                        } else if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
+                            Bitboard(0)
+                        } else {
+                            Bitboard::universe()
+                        };
 
                         if let Some(pin) = self.pinned(p) {
                             if Bitboard::from_square(to) & pin == 0 {
@@ -613,20 +784,15 @@ impl Board {
                         let captures_on: Square = Bitboard(left_attack.0).into();
                         let attacks_to_king = self.attacks_to_king(self.all_pieces(), true);
 
-                        left_attack = left_attack
-                            & if attacks_to_king.1 {
-                                Bitboard(0)
-                            } else {
-                                if attacks_to_king.0 == 0 {
-                                    Bitboard::universe()
-                                } else {
-                                    if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
-                                        Bitboard(0)
-                                    } else {
-                                        Bitboard::universe()
-                                    }
-                                }
-                            };
+                        left_attack &= if attacks_to_king.1 {
+                            Bitboard(0)
+                        } else if attacks_to_king.0 == 0 {
+                            Bitboard::universe()
+                        } else if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
+                            Bitboard(0)
+                        } else {
+                            Bitboard::universe()
+                        };
 
                         if let Some(pin) = self.pinned(p) {
                             if Bitboard::from_square(to) & pin == 0 {
@@ -649,20 +815,15 @@ impl Board {
                         let captures_on: Square = Bitboard(right_attack.0).into();
 
                         let attacks_to_king = self.attacks_to_king(self.all_pieces(), true);
-                        right_attack = right_attack
-                            & if attacks_to_king.1 {
-                                Bitboard(0)
-                            } else {
-                                if attacks_to_king.0 == 0 {
-                                    Bitboard::universe()
-                                } else {
-                                    if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
-                                        Bitboard(0)
-                                    } else {
-                                        Bitboard::universe()
-                                    }
-                                }
-                            };
+                        right_attack &= if attacks_to_king.1 {
+                            Bitboard(0)
+                        } else if attacks_to_king.0 == 0 {
+                            Bitboard::universe()
+                        } else if Bitboard::from_square(to) & attacks_to_king.0 == 0 {
+                            Bitboard(0)
+                        } else {
+                            Bitboard::universe()
+                        };
                         if let Some(pin) = self.pinned(p) {
                             if Bitboard::from_square(to) & pin == 0 {
                                 right_attack &= pin;
@@ -684,63 +845,88 @@ impl Board {
         en_passants
     }
 
-    fn set_status(&mut self, num_of_legal_moves: usize) {
-        match (self.king_in_check(), num_of_legal_moves) {
+    fn set_status(&mut self, num_of_legal_moves: usize, king_in_check: bool) {
+        match (king_in_check, num_of_legal_moves) {
             (true, 0) => self.status = Status::Checkmate(self.side_to_move.opposite()),
             (false, 0) => self.status = Status::Stalemate,
             _ => {}
         }
     }
-    pub fn available_castling(&self) -> Option<CastlingSide> {
-        if self.king_in_check() {
-            return None;
+
+    /// Returns [`Bitboard`] with pinned pieces and [`Bitboard`] with checkers.
+    #[inline]
+    pub fn find_pinned(&self) -> (Bitboard, Bitboard) {
+        let king = self.pieces(self.side_to_move)[PieceType::King as usize].lsb_square();
+        //white -> opposite
+        let bishop_rays = Bitboard(
+            BISHOP_ATTACKS[king.0 as usize]
+                .into_iter()
+                .reduce(|acc, next| acc | next)
+                .unwrap()
+                .to_owned(),
+        ) & (self.pieces(self.side_to_move.opposite())
+            [PieceType::Bishop as usize]
+            | self.pieces(self.side_to_move.opposite())[PieceType::Queen as usize]);
+
+        let rook_rays = Bitboard(
+            ROOK_ATTACKS[king.0 as usize]
+                .into_iter()
+                .reduce(|acc, next| acc | next)
+                .unwrap()
+                .to_owned(),
+        ) & (self.pieces(self.side_to_move.opposite())[PieceType::Rook as usize]
+            | self.pieces(self.side_to_move.opposite())[PieceType::Queen as usize]);
+        let attackers =
+            self.pieces_combined(self.side_to_move.opposite()) & (bishop_rays | rook_rays);
+        let mut pinned = Bitboard(0);
+        let mut checkers = Bitboard(0);
+        for sq in attackers {
+            let between = between(sq, king) & self.all_pieces();
+            if between == 0 {
+                checkers ^= Bitboard::from_square(sq);
+            } else if between.0.count_ones() == 1 {
+                pinned ^= between;
+            }
         }
+        let knight_moves =
+            PieceType::Knight.pseudo_legal_moves(king, self.side_to_move, Bitboard(0), Bitboard(0))
+                & self.pieces_combined(self.side_to_move.opposite())
+                & self.pieces(self.side_to_move.opposite())[PieceType::Knight as usize];
+        let mut pawn_attacks = Bitboard(0);
+        for pawn in self.pieces(self.side_to_move.opposite())[PieceType::Pawn as usize] {
+            pawn_attacks ^= Bitboard::from_square(king)
+                & Pawn::pawn_attacks(self.side_to_move.opposite(), pawn);
+        }
+        checkers ^= knight_moves;
+        checkers ^= pawn_attacks;
 
-        let original_square = match self.side_to_move {
-            Color::White => Square::from_str("e1").unwrap(),
-            Color::Black => Square::from_str("e8").unwrap(),
-        };
-        let king_on_original_square = self
-            .move_list
-            .iter()
-            .filter(|m| m.piece == PieceType::King && m.from == original_square)
-            .count()
-            == 0
-            && (self.pieces(self.side_to_move)[PieceType::King as usize]
-                & Bitboard::from_square(original_square)
-                != 0);
-        let a_rook_square = match self.side_to_move {
-            Color::White => Square::from_str("a1").unwrap(),
-            Color::Black => Square::from_str("a8").unwrap(),
-        };
-        let h_rook_square = match self.side_to_move {
-            Color::White => Square::from_str("h1").unwrap(),
-            Color::Black => Square::from_str("h8").unwrap(),
-        };
-        let a_rook_on_original_square = self
-            .move_list
-            .iter()
-            .filter(|m| m.piece == PieceType::Rook && m.from == a_rook_square)
-            .count()
-            == 0
-            && (self.pieces(self.side_to_move)[PieceType::Rook as usize]
-                & Bitboard::from_square(a_rook_square)
-                != 0);
-        let h_rook_on_original_square = self
-            .move_list
-            .iter()
-            .filter(|m| m.piece == PieceType::Rook && m.from == h_rook_square)
-            .count()
-            == 0
-            && (self.pieces(self.side_to_move)[PieceType::Rook as usize]
-                & Bitboard::from_square(h_rook_square)
-                != 0);
+        (pinned, checkers)
+    }
 
-        let pieces = self.pieces_combined(self.side_to_move)
-            | self.attacks(
-                self.pieces(self.side_to_move.opposite()),
-                self.side_to_move.opposite(),
-            );
+    fn get_ray(&self, sq1: Square, sq2: Square) -> Bitboard {
+        Bitboard(
+            RAY_ATTACKS[sq1.0 as usize]
+                .into_iter()
+                .find(|r| r & Bitboard::from_square(sq2).0 != 0)
+                .unwrap(),
+        )
+    }
+
+    pub fn get_available_castling(&self) -> Option<CastlingSide> {
+        let opposite_side_attacks = self.attacks(
+            self.pieces(self.side_to_move.opposite()),
+            self.side_to_move.opposite(),
+        );
+        self.available_castling(&opposite_side_attacks.0)
+    }
+
+    #[inline]
+    fn available_castling(&self, opposite_side_attacks: &Bitboard) -> Option<CastlingSide> {
+        let king_on_original_square = !self.castling_rights.king_moved(self.side_to_move);
+        let a_rook_on_original_square = !self.castling_rights.a_rook_moved(self.side_to_move);
+        let h_rook_on_original_square = !self.castling_rights.h_rook_moved(self.side_to_move);
+
+        let pieces = &self.pieces_combined(self.side_to_move) | opposite_side_attacks;
         let king_side = match self.side_to_move {
             Color::White => (pieces.0 >> 5).trailing_zeros() == 2,
             Color::Black => (pieces.0.swap_bytes() >> 5).trailing_zeros() == 2,
@@ -760,29 +946,54 @@ impl Board {
     }
 }
 
+#[inline]
+pub fn perft(board: &mut Board, depth: usize) -> usize {
+    let moves = board.legal_moves();
+
+    let mut final_depth = 0;
+
+    if depth == 1 {
+        moves.len()
+    } else {
+        for m in moves {
+            let mut board = board.make_move_new(m);
+            final_depth += perft(&mut board, depth - 1);
+        }
+
+        final_depth
+    }
+}
+
 impl Default for Board {
     fn default() -> Self {
+        let white_pieces = [
+            Bitboard(constants::WHITE_PAWNS),
+            Bitboard(constants::WHITE_ROOKS),
+            Bitboard(constants::WHITE_KNIGHTS),
+            Bitboard(constants::WHITE_BISHOPS),
+            Bitboard(constants::WHITE_QUEENS),
+            Bitboard(constants::WHITE_KING),
+        ];
+        let black_pieces = [
+            Bitboard(constants::BLACK_PAWNS),
+            Bitboard(constants::BLACK_ROOKS),
+            Bitboard(constants::BLACK_KNIGHTS),
+            Bitboard(constants::BLACK_BISHOPS),
+            Bitboard(constants::BLACK_QUEENS),
+            Bitboard(constants::BLACK_KING),
+        ];
+        let white = Self::combine(white_pieces);
+        let black = Self::combine(black_pieces);
         Self {
-            white_pieces: [
-                Bitboard(constants::WHITE_PAWNS),
-                Bitboard(constants::WHITE_ROOKS),
-                Bitboard(constants::WHITE_KNIGHTS),
-                Bitboard(constants::WHITE_BISHOPS),
-                Bitboard(constants::WHITE_QUEENS),
-                Bitboard(constants::WHITE_KING),
-            ],
-            black_pieces: [
-                Bitboard(constants::BLACK_PAWNS),
-                Bitboard(constants::BLACK_ROOKS),
-                Bitboard(constants::BLACK_KNIGHTS),
-                Bitboard(constants::BLACK_BISHOPS),
-                Bitboard(constants::BLACK_QUEENS),
-                Bitboard(constants::BLACK_KING),
-            ],
-            move_list: vec![],
+            white_pieces,
+            black_pieces,
+            white,
+            black,
+            move_list: smallvec![],
             halfmoves: 0,
             side_to_move: Color::White,
             status: Status::Ongoing,
+            castling_rights: CastlingRights::default(),
         }
     }
 }
@@ -819,10 +1030,14 @@ impl From<FEN> for Board {
                 _ => unreachable!(),
             }
         }
+        let white = Self::combine(fen.pieces[Color::White as usize]);
+        let black = Self::combine(fen.pieces[Color::Black as usize]);
         Self {
             white_pieces: fen.pieces[Color::White as usize],
             black_pieces: fen.pieces[Color::Black as usize],
-            move_list,
+            white,
+            black,
+            move_list: move_list.into(),
             halfmoves: fen.halfmove_clock,
             side_to_move: fen.active_color,
             status: if fen.halfmove_clock < 100 {
@@ -830,6 +1045,8 @@ impl From<FEN> for Board {
             } else {
                 Status::Draw(DrawReason::Halfmoves)
             },
+            // TODO: respect here castling rights from FEN
+            castling_rights: CastlingRights::from(fen.castling_rules),
         }
     }
 }
@@ -843,7 +1060,7 @@ impl std::fmt::Display for Board {
             for i in 0..8 {
                 let piece = Bitboard::from_square_number(8 * row + i);
                 if piece & pieces != 0 {
-                    for p in PieceType::iter() {
+                    for p in PieceType::ALL {
                         if self.white_pieces[p as usize] & piece != 0 {
                             write!(f, "| {} ", p.unicode(Color::White))?;
                             break;
@@ -862,7 +1079,7 @@ impl std::fmt::Display for Board {
             write!(f, "\n ---------------------------------\n")?;
         }
         write!(f, "   A   B   C   D   E   F   G   H ")?;
-        write!(f, "\n")?;
+        writeln!(f)?;
         Ok(())
     }
 }
@@ -905,7 +1122,7 @@ impl std::fmt::Display for Position {
             for i in 0..8 {
                 let piece = Bitboard::from_square_number(8 * row + i);
                 if piece & pieces != 0 {
-                    for p in PieceType::iter() {
+                    for p in PieceType::ALL {
                         if self.white_pieces[p as usize] & piece != 0 {
                             write!(f, "| {} ", p.unicode(Color::White))?;
                             break;
@@ -924,7 +1141,7 @@ impl std::fmt::Display for Position {
             write!(f, "\n ---------------------------------\n")?;
         }
         write!(f, "   A   B   C   D   E   F   G   H ")?;
-        write!(f, "\n")?;
+        writeln!(f)?;
         Ok(())
     }
 }
@@ -944,23 +1161,30 @@ impl Iterator for IntoIter {
     type Item = Position;
     fn next(&mut self) -> Option<Self::Item> {
         let moves = self.board.legal_moves();
-        if moves.len() == 0 || self.board.move_list.len() == 250 {
+        if moves.is_empty() || self.board.move_list.len() == 250 {
             println!("{:?}", self.board.status);
             return None;
         }
 
         let mut rng = rand::thread_rng();
-        let m = if let Some(m) = moves.iter().find(|m| m.capture == Some(PieceType::King)) {
+        let m = if let Some(m) = moves.iter().find(|m| {
+            m.move_type
+                == MoveType::Castling {
+                    side: CastlingSide::KingSide,
+                }
+        }) {
             m.to_owned()
         } else {
             let captures: Vec<&Move> = moves.iter().filter(|m| m.capture.is_some()).collect();
-            if captures.len() != 0 {
+            if !captures.is_empty() {
                 captures.choose(&mut rng).unwrap().to_owned().to_owned()
             } else {
                 moves.choose(&mut rng).unwrap().to_owned()
             }
         };
-        let _ = unsafe { self.board.make_move_unchecked(m) };
+        unsafe {
+            self.board.make_move_unchecked(m);
+        }
         Some(Position {
             white_pieces: self.board.white_pieces,
             black_pieces: self.board.black_pieces,
@@ -971,6 +1195,7 @@ impl Iterator for IntoIter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn halfmoves_rule() {
@@ -989,13 +1214,10 @@ mod tests {
         assert_eq!(board.move_list[0].from, Square::from_str("d7").unwrap());
         assert_eq!(board.move_list[0].to, Square::from_str("d5").unwrap());
         let moves = board.available_en_passant();
-        assert!(moves
-            .iter()
-            .find(|m| m.move_type
-                == MoveType::EnPassant {
-                    captures_on: Square::from_str("d5").unwrap()
-                })
-            .is_some())
+        assert!(moves.iter().any(|m| m.move_type
+            == MoveType::EnPassant {
+                captures_on: Square::from_str("d5").unwrap()
+            }))
     }
 
     #[test]
@@ -1005,13 +1227,10 @@ mod tests {
 
         assert!(board.available_en_passant().is_empty());
         assert!(board.pinned(Square::from_str("e5").unwrap()).is_some());
-        assert!(moves
-            .iter()
-            .find(|m| m.move_type
-                == MoveType::EnPassant {
-                    captures_on: Square::from_str("f5").unwrap()
-                })
-            .is_none())
+        assert!(!moves.iter().any(|m| m.move_type
+            == MoveType::EnPassant {
+                captures_on: Square::from_str("f5").unwrap()
+            }))
     }
 
     #[test]
@@ -1021,13 +1240,10 @@ mod tests {
 
         assert!(!board.available_en_passant().is_empty());
         assert!(board.pinned(Square::from_str("e5").unwrap()).is_some());
-        assert!(moves
-            .iter()
-            .find(|m| m.move_type
-                == MoveType::EnPassant {
-                    captures_on: Square::from_str("f5").unwrap()
-                })
-            .is_some())
+        assert!(moves.iter().any(|m| m.move_type
+            == MoveType::EnPassant {
+                captures_on: Square::from_str("f5").unwrap()
+            }))
     }
 
     #[test]
@@ -1036,20 +1252,17 @@ mod tests {
         let moves = board.available_en_passant();
 
         assert!(!board.available_en_passant().is_empty());
-        assert!(moves
-            .iter()
-            .find(|m| m.move_type
-                == MoveType::EnPassant {
-                    captures_on: Square::from_str("d5").unwrap()
-                })
-            .is_some())
+        assert!(moves.iter().any(|m| m.move_type
+            == MoveType::EnPassant {
+                captures_on: Square::from_str("d5").unwrap()
+            }))
     }
 
     #[test]
     fn combined_pieces() {
         let board = Board::default();
-        assert_eq!(board.white().0, 0xFFFF);
-        assert_eq!(board.black().0, 0xFFFF_u64.swap_bytes());
+        assert_eq!(board.white.0, 0xFFFF);
+        assert_eq!(board.black.0, 0xFFFF_u64.swap_bytes());
         assert_eq!(board.all_pieces().0, 0xFFFF | 0xFFFF_u64.swap_bytes());
     }
 
@@ -1075,6 +1288,14 @@ mod tests {
             moves.iter().filter(|m| m.piece == PieceType::Pawn).count(),
             0
         );
+    }
+
+    #[test]
+    fn ray_blocked_by_two_pieces() {
+        let board = Board::from_fen("4k3/8/7b/8/5P2/4P3/3K4/8 w - - 0 1").unwrap();
+
+        assert!(board.pinned(Square::from_str("e3").unwrap()).is_none());
+        assert!(board.pinned(Square::from_str("e4").unwrap()).is_none());
     }
 
     #[test]
@@ -1105,12 +1326,21 @@ mod tests {
     }
 
     #[test]
+    fn check_whith_knight() {
+        let mut board = Board::from_fen("8/3n4/1p4N1/8/1P5k/8/5K2/8 b - - 41 39").unwrap();
+        let moves = board.legal_moves();
+
+        assert!(board.king_in_check().0);
+        assert!(moves.iter().all(|m| m.piece == PieceType::King));
+    }
+
+    #[test]
     fn castling_rules() {
         let mut white_both_side =
             Board::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1").unwrap();
         let moves = white_both_side.legal_moves();
 
-        let castling = white_both_side.available_castling();
+        let castling = white_both_side.get_available_castling();
         assert!(castling.is_some());
         assert_eq!(castling.unwrap(), CastlingSide::Both);
         let _ = white_both_side.make_move(
@@ -1122,7 +1352,7 @@ mod tests {
         let moves = white_both_side.legal_moves();
         let _ = white_both_side.make_move(moves[0]);
 
-        let castling = white_both_side.available_castling();
+        let castling = white_both_side.get_available_castling();
         assert_eq!(castling.unwrap(), CastlingSide::KingSide);
 
         let moves = white_both_side.legal_moves();
@@ -1135,17 +1365,17 @@ mod tests {
         let moves = white_both_side.legal_moves();
         let _ = white_both_side.make_move(moves[0]);
 
-        let castling = white_both_side.available_castling();
+        let castling = white_both_side.get_available_castling();
         assert!(castling.is_none());
     }
 
     #[test]
     fn castling_rules_black() {
         let mut black_both_side =
-            Board::from_fen("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQq - 0 1").unwrap();
+            Board::from_fen("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b Kkq - 0 1").unwrap();
         let moves = black_both_side.legal_moves();
 
-        let castling = black_both_side.available_castling();
+        let castling = black_both_side.get_available_castling();
         assert!(castling.is_some());
         assert_eq!(castling.unwrap(), CastlingSide::Both);
         let _ = black_both_side.make_move(
@@ -1157,7 +1387,7 @@ mod tests {
         let moves = black_both_side.legal_moves();
         let _ = black_both_side.make_move(moves[0]);
 
-        let castling = black_both_side.available_castling();
+        let castling = black_both_side.get_available_castling();
         assert_eq!(castling.unwrap(), CastlingSide::KingSide);
 
         let moves = black_both_side.legal_moves();
@@ -1170,14 +1400,14 @@ mod tests {
         let moves = black_both_side.legal_moves();
         let _ = black_both_side.make_move(moves[0]);
 
-        let castling = black_both_side.available_castling();
+        let castling = black_both_side.get_available_castling();
         assert!(castling.is_none());
     }
 
     #[test]
     fn check() {
         let mut board = Board::from_fen("4k3/3r4/8/8/8/8/3K4/5B2 w - - 0 1").unwrap();
-        assert!(board.king_in_check());
+        assert!(board.king_in_check().0);
         let moves = board.legal_moves();
         assert_eq!(moves.len(), 7);
 
@@ -1188,7 +1418,7 @@ mod tests {
     #[test]
     fn mate() {
         let mut board = Board::from_fen("3k4/2R1Q3/8/8/8/8/8/5K2 b - - 0 1").unwrap();
-        assert!(board.king_in_check());
+        assert!(board.king_in_check().0);
         let moves = board.legal_moves();
         assert!(moves.is_empty());
         assert_eq!(board.status, Status::Checkmate(Color::White));
@@ -1197,9 +1427,151 @@ mod tests {
     #[test]
     fn stalemate() {
         let mut board = Board::from_fen("k7/2R5/8/8/1Q6/8/5p2/5K2 b - - 0 1").unwrap();
-        assert!(!board.king_in_check());
+        assert!(!board.king_in_check().0);
         let moves = board.legal_moves();
         assert!(moves.is_empty());
         assert_eq!(board.status, Status::Stalemate);
+    }
+
+    #[test]
+    fn castling_white() {
+        let mut board =
+            Board::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1").unwrap();
+        let moves = board.legal_moves();
+        let castle = moves
+            .iter()
+            .find(|m| {
+                m.move_type
+                    == MoveType::Castling {
+                        side: CastlingSide::KingSide,
+                    }
+            })
+            .unwrap()
+            .to_owned();
+        let king = board.white_pieces[PieceType::King as usize];
+        assert_eq!(king.0.count_ones(), 1);
+        assert_eq!(king.lsb_square(), Square::E1);
+        assert!(king & board.white != 0);
+
+        let rook = Square::H1;
+        assert!(board.white_pieces[PieceType::Rook as usize] & Bitboard::from_square(rook) != 0);
+        let _ = board.make_move(castle);
+
+        let king = board.white_pieces[PieceType::King as usize];
+        assert_eq!(king.0.count_ones(), 1);
+        assert_eq!(king.lsb_square(), Square::G1);
+        assert!(king & board.white != 0);
+        assert!(
+            board.white_pieces[PieceType::Rook as usize] & Bitboard::from_square(Square::F1) != 0
+        );
+    }
+
+    #[test]
+    fn castling_black() {
+        let mut board =
+            Board::from_fen("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQq - 0 1").unwrap();
+        let moves = board.legal_moves();
+        let castle = moves
+            .iter()
+            .find(|m| {
+                m.move_type
+                    == MoveType::Castling {
+                        side: CastlingSide::QueenSide,
+                    }
+            })
+            .unwrap()
+            .to_owned();
+        let king = board.black_pieces[PieceType::King as usize];
+        assert_eq!(king.0.count_ones(), 1);
+        assert_eq!(king.lsb_square(), Square::E8);
+        assert!(king & board.black != 0);
+
+        let rook = Square::A8;
+        assert!(board.black_pieces[PieceType::Rook as usize] & Bitboard::from_square(rook) != 0);
+        let _ = board.make_move(castle);
+
+        let king = board.black_pieces[PieceType::King as usize];
+        assert_eq!(king.0.count_ones(), 1);
+        assert_eq!(king.lsb_square(), Square::C8);
+        assert!(king & board.black != 0);
+        assert!(
+            board.black_pieces[PieceType::Rook as usize] & Bitboard::from_square(Square::D8) != 0
+        );
+    }
+
+    #[test]
+    fn protected_pieces() {
+        let mut board = Board::from_fen("1b4k1/8/8/8/5r2/4K3/8/8 w - - 0 1").unwrap();
+        let moves = board.legal_moves();
+        assert_eq!(moves.len(), 3);
+        assert!(!moves
+            .iter()
+            .any(|m| m.capture.is_some() && m.piece == PieceType::King),);
+    }
+
+    #[test]
+    fn perft_starting_position_depth_1() {
+        let mut board = Board::default();
+        assert_eq!(perft(&mut board, 1), 20);
+    }
+
+    #[test]
+    fn perft_starting_position_depth_2() {
+        let mut board = Board::default();
+        assert_eq!(perft(&mut board, 2), 400);
+    }
+
+    #[test]
+    fn perft_starting_position_depth_3() {
+        let mut board = Board::default();
+        assert_eq!(perft(&mut board, 3), 8902);
+    }
+
+    #[test]
+    fn perft_starting_position_depth_4() {
+        let mut board = Board::default();
+        assert_eq!(perft(&mut board, 4), 197_281);
+    }
+
+    #[test]
+    fn perft_starting_position_depth_5() {
+        let mut board = Board::default();
+        assert_eq!(perft(&mut board, 5), 4_865_609);
+    }
+
+    #[test]
+    fn perft_starting_position_depth_6() {
+        let mut board = Board::from_fen("5K2/8/1Q6/2N5/8/1p2k3/8/8 w - - 0 1").unwrap();
+        assert_eq!(perft(&mut board, 5), 1004658);
+    }
+
+    #[test]
+    fn perft_kiwipete_depth_1() {
+        let mut board =
+            Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
+                .unwrap();
+        assert_eq!(perft(&mut board, 1), 48);
+    }
+
+    #[ignore = "2038, expected to be 2039"]
+    #[test]
+    fn perft_kiwipete_depth_2() {
+        let mut board =
+            Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
+                .unwrap();
+        assert_eq!(perft(&mut board, 2), 2039);
+    }
+
+    #[test]
+    fn position_3_depth_1() {
+        let mut board = Board::from_fen("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1").unwrap();
+        assert_eq!(perft(&mut board, 1), 14);
+    }
+
+    #[ignore = "193, expected to be 191"]
+    #[test]
+    fn position_3_depth_2() {
+        let mut board = Board::from_fen("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1").unwrap();
+        assert_eq!(perft(&mut board, 2), 191);
     }
 }

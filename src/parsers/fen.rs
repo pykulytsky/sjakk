@@ -1,11 +1,16 @@
-use std::{num::ParseIntError, str::FromStr};
+#![allow(clippy::single_char_pattern)]
+
+use std::{
+    num::ParseIntError,
+    str::{FromStr, Split},
+};
 
 use crate::{
     board::Board,
+    moves::CastlingSide,
     piece::{Color, PieceType},
     Bitboard, Square,
 };
-use strum::IntoEnumIterator;
 use thiserror::Error;
 
 /// FEN is the standard notation to describe positions of a chess game.
@@ -14,6 +19,7 @@ pub struct FEN {
     pub pieces: [[Bitboard; 6]; 2],
     pub active_color: Color,
     pub en_passant_target: Option<Square>,
+    pub castling_rules: (Option<CastlingSide>, Option<CastlingSide>),
     pub halfmove_clock: u16,
     pub fullmove_number: u16,
 }
@@ -39,15 +45,15 @@ pub fn parse(fen: &str) -> Result<FEN, FENParseError> {
 impl FromStr for FEN {
     type Err = FENParseError;
     fn from_str(fen: &str) -> Result<Self, Self::Err> {
-        let mut parts = fen.split(" ");
-        if fen.split(" ").clone().count() != 6 {
+        let mut parts: Split<'_, &str> = fen.split(" ");
+        if fen.split(' ').clone().count() != 6 {
             return Err(FENParseError::NotEnoughParts);
         }
 
         let pieces = parse_piece_placement(parts.next().unwrap())?;
         let active_color = parse_active_color(parts.next().unwrap())?;
         // Skip castling rights and posible en passant for now.
-        let _ = parts.next();
+        let castling_rules = parse_castling(parts.next().unwrap());
         let en_passant_target = parse_en_passant_target(parts.next().unwrap());
         let (halfmove_clock, fullmove_number) = parse_moves(parts.take(2))?;
 
@@ -55,6 +61,7 @@ impl FromStr for FEN {
             pieces,
             active_color,
             en_passant_target,
+            castling_rules,
             halfmove_clock,
             fullmove_number,
         })
@@ -67,10 +74,10 @@ fn parse_moves(
     // TODO: fix errors convertation
     Ok((
         take.next()
-            .ok_or_else(|| FENParseError::FullmoveNumber)?
+            .ok_or(FENParseError::FullmoveNumber)?
             .parse::<u16>()?,
         take.next()
-            .ok_or_else(|| FENParseError::FullmoveNumber)?
+            .ok_or(FENParseError::FullmoveNumber)?
             .parse::<u16>()?,
     ))
 }
@@ -107,10 +114,8 @@ fn parse_piece_placement(notation: &str) -> Result<[[Bitboard; 6]; 2], FENParseE
         ],
     ];
     for n in notation.chars() {
-        if n.is_digit(10) {
-            offset += n
-                .to_digit(10)
-                .ok_or_else(|| FENParseError::PiecePlacement)?;
+        if n.is_ascii_digit() {
+            offset += n.to_digit(10).ok_or(FENParseError::PiecePlacement)?;
         } else {
             match n {
                 'p' => {
@@ -175,10 +180,8 @@ fn parse_piece_placement(notation: &str) -> Result<[[Bitboard; 6]; 2], FENParseE
         }
     }
 
-    for i in 0..2 {
-        pieces_bb[i]
-            .iter_mut()
-            .for_each(|p| *p = Bitboard(p.0.swap_bytes()));
+    for bb in pieces_bb.iter_mut() {
+        bb.iter_mut().for_each(|p| *p = Bitboard(p.0.swap_bytes()));
     }
     Ok(pieces_bb)
 }
@@ -190,11 +193,37 @@ fn parse_en_passant_target(input: &str) -> Option<Square> {
     }
 }
 
+fn parse_castling(input: &str) -> (Option<CastlingSide>, Option<CastlingSide>) {
+    match input {
+        "-" => (None, None),
+        "KQkq" => (Some(CastlingSide::Both), Some(CastlingSide::Both)),
+
+        "Kkq" => (Some(CastlingSide::KingSide), Some(CastlingSide::Both)),
+        "KQq" => (Some(CastlingSide::Both), Some(CastlingSide::QueenSide)),
+        "KQk" => (Some(CastlingSide::Both), Some(CastlingSide::KingSide)),
+        "Qkq" => (Some(CastlingSide::QueenSide), Some(CastlingSide::Both)),
+
+        "KQ" => (Some(CastlingSide::Both), None),
+        "kq" => (None, Some(CastlingSide::Both)),
+        "Qq" => (Some(CastlingSide::QueenSide), Some(CastlingSide::QueenSide)),
+        "Kk" => (Some(CastlingSide::KingSide), Some(CastlingSide::KingSide)),
+        "Qk" => (Some(CastlingSide::QueenSide), Some(CastlingSide::KingSide)),
+        "Kq" => (Some(CastlingSide::KingSide), Some(CastlingSide::QueenSide)),
+
+        "K" => (Some(CastlingSide::KingSide), None),
+        "Q" => (Some(CastlingSide::QueenSide), None),
+        "k" => (None, Some(CastlingSide::KingSide)),
+        "q" => (None, Some(CastlingSide::QueenSide)),
+        _ => (None, None),
+    }
+}
+
 impl From<Board> for FEN {
     fn from(board: Board) -> Self {
         Self {
             pieces: [board.white_pieces, board.black_pieces],
             active_color: board.side_to_move,
+            castling_rules: (None, None),
             en_passant_target: None,
             halfmove_clock: board.halfmoves,
             fullmove_number: board.move_list.len() as u16 / 2,
@@ -228,7 +257,7 @@ impl ToString for FEN {
             }
             let mut empty = true;
             for (side, piece) in self.pieces.iter().enumerate() {
-                for p in PieceType::iter() {
+                for p in PieceType::ALL {
                     if pieces & (1_u64 << i) & piece[p as usize].0.swap_bytes() != 0 {
                         empty = false;
 

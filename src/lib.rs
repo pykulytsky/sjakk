@@ -1,3 +1,5 @@
+pub mod between;
+pub mod between_gen;
 pub mod bitboard;
 pub mod board;
 pub mod constants;

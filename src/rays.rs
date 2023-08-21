@@ -2,6 +2,8 @@ use crate::utils::{lower_ones, upper_ones};
 use crate::Direction::*;
 
 pub const RAY_ATTACKS: [[u64; 8]; 64] = ray_attacks();
+pub const ROOK_ATTACKS: [[u64; 4]; 64] = piece_attacks().0;
+pub const BISHOP_ATTACKS: [[u64; 4]; 64] = piece_attacks().1;
 
 #[inline]
 pub const fn ray_attacks() -> [[u64; 8]; 64] {
@@ -24,6 +26,27 @@ pub const fn ray_attacks() -> [[u64; 8]; 64] {
 }
 
 #[inline]
+pub const fn piece_attacks() -> ([[u64; 4]; 64], [[u64; 4]; 64]) {
+    let mut bishop = [[0u64; 4]; 64];
+    let mut rook = [[0u64; 4]; 64];
+
+    let mut north = 0x0101010101010100_u64;
+    let mut sq = 0;
+    while sq < 64 {
+        rook[sq][0] = north;
+        north <<= 1;
+        let one = 1_u64;
+        rook[sq][1] = 2 * ((one << (sq | 7)) - (one << sq));
+        rook[sq][2] = (one << sq) - (one << (sq & 56));
+        rook[sq][3] = 0x0080808080808080_u64 >> (sq ^ 63);
+        (bishop[sq][0], bishop[sq][1]) = ray_attacks_diag(sq);
+        (bishop[sq][2], bishop[sq][3]) = ray_attacks_antidiag(sq);
+        sq += 1;
+    }
+    (rook, bishop)
+}
+
+#[inline]
 pub const fn ray_attacks_diag(sq: usize) -> (u64, u64) {
     let maindia = 0x8040201008040201_u64;
     let diag = (8 * (sq as isize & 7)).wrapping_sub(sq as isize & 56);
@@ -40,9 +63,9 @@ pub const fn ray_attacks_antidiag(sq: usize) -> (u64, u64) {
     let maindia = 0x0102040810204080_u64;
     let antidiag: isize = 7 - (sq as isize & 7) - (sq as isize >> 3);
     let antidiags = if antidiag >= 0 {
-        maindia >> antidiag * 8
+        maindia >> (antidiag * 8)
     } else {
-        maindia << -antidiag * 8
+        maindia << (-antidiag * 8)
     };
 
     let south_east = lower_ones(sq as u8) & antidiags;

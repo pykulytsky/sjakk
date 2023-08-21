@@ -1,5 +1,6 @@
 //! Provides some useful constants, that are used throughout the crate.
-use strum_macros::EnumIter;
+use crate::Square;
+
 /// Represents all possible directions in chess, in which piece can move.
 ///
 ///  northwest    north   northeast
@@ -12,7 +13,7 @@ use strum_macros::EnumIter;
 ///  soWe         sout         soEa
 ///  southwest    south   southeast
 ///  `
-#[derive(Debug, EnumIter)]
+#[derive(Debug)]
 pub enum Direction {
     North,
     NorthEast,
@@ -51,14 +52,14 @@ const FILE: u64 = u64::from_ne_bytes([
 ]);
 
 pub const MASK_FILE: [u64; 8] = [
-    FILE << 0 as u8,
-    FILE << 1 as u8,
-    FILE << 2 as u8,
-    FILE << 3 as u8,
-    FILE << 4 as u8,
-    FILE << 5 as u8,
-    FILE << 6 as u8,
-    FILE << 7 as u8,
+    FILE,
+    FILE << 1_u8,
+    FILE << 2_u8,
+    FILE << 3_u8,
+    FILE << 4_u8,
+    FILE << 5_u8,
+    FILE << 6_u8,
+    FILE << 7_u8,
 ];
 
 pub const CLEAR_FILE: [u64; 8] = [
@@ -84,7 +85,7 @@ pub const LSB_64_TABLE: [u64; 64] = [
     57, 48, 13, 10, 39, 8, 44, 20, 47, 38, 22, 17, 37, 36, 26,
 ];
 
-pub const DEBRUIJ_T: &'static [u8] = &[
+pub const DEBRUIJ_T: &[u8] = &[
     0, 47, 1, 56, 48, 27, 2, 60, 57, 49, 41, 37, 28, 16, 3, 61, 54, 58, 35, 52, 50, 42, 21, 44, 38,
     32, 29, 23, 17, 11, 4, 62, 46, 55, 26, 59, 40, 36, 15, 53, 34, 51, 20, 43, 31, 22, 10, 45, 25,
     39, 14, 33, 19, 30, 9, 24, 13, 18, 8, 12, 7, 6, 5, 63,
@@ -128,3 +129,70 @@ pub const WHITE_LONG_CASTLE_MASK: u64 = 0b10001;
 pub const WHITE_SHORT_CASTLE_MASK: u64 = 0b10001 << 4;
 pub const BLACK_SHORT_CASTLE_MASK: u64 = WHITE_SHORT_CASTLE_MASK.reverse_bits();
 pub const BLACK_LONG_CASTLE_MASK: u64 = WHITE_LONG_CASTLE_MASK.reverse_bits();
+
+pub const ALL_SQUARES: [Square; 64] = [
+    Square(0),
+    Square(1),
+    Square(2),
+    Square(3),
+    Square(4),
+    Square(5),
+    Square(6),
+    Square(7),
+    Square(8),
+    Square(9),
+    Square(10),
+    Square(11),
+    Square(12),
+    Square(13),
+    Square(14),
+    Square(15),
+    Square(16),
+    Square(17),
+    Square(18),
+    Square(19),
+    Square(20),
+    Square(21),
+    Square(22),
+    Square(23),
+    Square(24),
+    Square(25),
+    Square(26),
+    Square(27),
+    Square(28),
+    Square(29),
+    Square(30),
+    Square(31),
+    Square(32),
+    Square(33),
+    Square(34),
+    Square(35),
+    Square(36),
+    Square(37),
+    Square(38),
+    Square(39),
+    Square(40),
+    Square(41),
+    Square(42),
+    Square(43),
+    Square(44),
+    Square(45),
+    Square(46),
+    Square(47),
+    Square(48),
+    Square(49),
+    Square(50),
+    Square(51),
+    Square(52),
+    Square(53),
+    Square(54),
+    Square(55),
+    Square(56),
+    Square(57),
+    Square(58),
+    Square(59),
+    Square(60),
+    Square(61),
+    Square(62),
+    Square(63),
+];
