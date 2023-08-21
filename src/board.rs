@@ -423,7 +423,7 @@ impl Board {
     }
 
     #[inline]
-    pub fn attacks(&self, side: [Bitboard; 6], color: Color) -> (Bitboard, Bitboard) {
+    fn attacks(&self, side: [Bitboard; 6], color: Color) -> (Bitboard, Bitboard) {
         let king = self.pieces(color.opposite())[PieceType::King as usize];
         let (own, enemy) = match color {
             Color::White => (self.white_pieces, self.black ^ king),
@@ -453,24 +453,6 @@ impl Board {
             }
         }
         (attacks_bb, protected_bb)
-    }
-
-    #[inline]
-    pub fn protected_pieces(&self, color: Color) -> Bitboard {
-        let king = self.pieces(color.opposite())[PieceType::King as usize];
-        let (own, enemy) = match color {
-            Color::White => (self.white_pieces, self.black ^ king),
-            Color::Black => (self.black_pieces, self.white ^ king),
-        };
-        let mut protected_bb = Bitboard(0);
-        for piece in PieceType::ALL {
-            for sq in own[piece as usize] {
-                let bb = piece.pseudo_legal_moves(sq, color, self.all_pieces() ^ king, enemy)
-                    & self.pieces_combined(color);
-                protected_bb |= bb;
-            }
-        }
-        protected_bb
     }
 
     pub fn make_move(&mut self, m: Move) -> Result<(), IllegalMove> {
@@ -559,7 +541,7 @@ impl Board {
     }
 
     #[inline]
-    pub fn attacks_to_king(&self, all_pieces: Bitboard, with_attacker: bool) -> (Bitboard, bool) {
+    fn attacks_to_king(&self, all_pieces: Bitboard, with_attacker: bool) -> (Bitboard, bool) {
         let mut checks = 0;
         let mut attacks_to_king_bitboard = Bitboard(0);
         let (king_square, opposite_side, color) = match self.side_to_move {
@@ -604,23 +586,6 @@ impl Board {
         }
 
         (attacks_to_king_bitboard, checks > 1)
-    }
-
-    /// Returns true if king in check, second tuple contains [`Bitboard`] with all the attacks to
-    /// king with attacking pieces, as well as boolean value which indicates if king is in double
-    /// check.
-    #[inline]
-    pub fn king_in_check(&self) -> (bool, (Bitboard, bool)) {
-        let king = match self.side_to_move {
-            Color::White => self.white_pieces[PieceType::King as usize],
-            Color::Black => self.black_pieces[PieceType::King as usize],
-        };
-
-        let attacks = self.attacks_to_king(self.all_pieces(), true);
-        let attacks_to_king =
-            attacks.0 & !(attacks.0 & self.pieces_combined(self.side_to_move.opposite()));
-
-        ((king & attacks_to_king) != 0, attacks)
     }
 
     /// Returns pinned ray, for given square, if piece on this square is pinned.
@@ -1329,7 +1294,7 @@ mod tests {
         let mut board = Board::from_fen("8/3n4/1p4N1/8/1P5k/8/5K2/8 b - - 41 39").unwrap();
         let moves = board.legal_moves();
 
-        assert!(board.king_in_check().0);
+        assert!(board.find_pinned().1 .0.count_ones() == 1);
         assert!(moves.iter().all(|m| m.piece == PieceType::King));
     }
 
@@ -1406,7 +1371,7 @@ mod tests {
     #[test]
     fn check() {
         let mut board = Board::from_fen("4k3/3r4/8/8/8/8/3K4/5B2 w - - 0 1").unwrap();
-        assert!(board.king_in_check().0);
+        assert!(board.find_pinned().1 .0.count_ones() == 1);
         let moves = board.legal_moves();
         assert_eq!(moves.len(), 7);
 
@@ -1417,7 +1382,7 @@ mod tests {
     #[test]
     fn mate() {
         let mut board = Board::from_fen("3k4/2R1Q3/8/8/8/8/8/5K2 b - - 0 1").unwrap();
-        assert!(board.king_in_check().0);
+        assert!(board.find_pinned().1 .0.count_ones() == 1);
         let moves = board.legal_moves();
         assert!(moves.is_empty());
         assert_eq!(board.status, Status::Checkmate(Color::White));
@@ -1426,7 +1391,7 @@ mod tests {
     #[test]
     fn stalemate() {
         let mut board = Board::from_fen("k7/2R5/8/8/1Q6/8/5p2/5K2 b - - 0 1").unwrap();
-        assert!(!board.king_in_check().0);
+        assert!(board.find_pinned().1 .0.count_ones() == 0);
         let moves = board.legal_moves();
         assert!(moves.is_empty());
         assert_eq!(board.status, Status::Stalemate);
