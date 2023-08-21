@@ -187,7 +187,7 @@ impl Board {
 
     #[inline]
     pub fn legal_moves(&mut self) -> SmallVec<[Move; 18]> {
-        let pinned_bb = self.find_pinned();
+        let (pinned_bb, checkers) = self.find_pinned();
         let (own_pieces, own_combined) = match self.side_to_move {
             Color::White => (self.white_pieces, self.white),
             Color::Black => (self.black_pieces, self.black),
@@ -201,7 +201,25 @@ impl Board {
         );
         let opposite_side_attacks = attacks.0;
         let protected_pieces = attacks.1;
+        let ksq = own_pieces[PieceType::King as usize].lsb_square();
 
+        // let check_mask = if checkers.0.count_ones() == 1 {
+        //     between(checkers.lsb_square(), ksq) ^ checkers
+        // } else {
+        //     Bitboard::universe()
+        // };
+        // if checkers.0.count_ones() > 1 {
+        //
+        //     let bb = PieceType::King.pseudo_legal_moves(
+        //         ksq,
+        //         self.side_to_move,
+        //         self.all_pieces(),
+        //         own_combined,
+        //     ) & opposite_side_attacks;
+        //
+        //     self.fill_move_list(&mut moves, ksq, bb, PieceType::King);
+        //     return moves;
+        // }
         for piece in PieceType::ALL {
             for sq in own_pieces[piece as usize] {
                 let mut bb = piece.pseudo_legal_moves(
@@ -835,7 +853,9 @@ impl Board {
         }
     }
 
-    pub fn find_pinned(&self) -> Bitboard {
+    /// Returns [`Bitboard`] with pinned pieces and [`Bitboard`] with checkers.
+    #[inline]
+    pub fn find_pinned(&self) -> (Bitboard, Bitboard) {
         let king = self.pieces(self.side_to_move)[PieceType::King as usize].lsb_square();
         //white -> opposite
         let bishop_rays = Bitboard(
@@ -859,13 +879,28 @@ impl Board {
         let attackers =
             self.pieces_combined(self.side_to_move.opposite()) & (bishop_rays | rook_rays);
         let mut pinned = Bitboard(0);
+        let mut checkers = Bitboard(0);
         for sq in attackers {
             let between = between(sq, king) & self.all_pieces();
-            if between.0.count_ones() == 1 {
+            if between == 0 {
+                checkers ^= Bitboard::from_square(sq);
+            } else if between.0.count_ones() == 1 {
                 pinned ^= between;
             }
         }
-        pinned
+        let knight_moves =
+            PieceType::Knight.pseudo_legal_moves(king, self.side_to_move, Bitboard(0), Bitboard(0))
+                & self.pieces_combined(self.side_to_move.opposite())
+                & self.pieces(self.side_to_move.opposite())[PieceType::Knight as usize];
+        let mut pawn_attacks = Bitboard(0);
+        for pawn in self.pieces(self.side_to_move.opposite())[PieceType::Pawn as usize] {
+            pawn_attacks ^= Bitboard::from_square(king)
+                & Pawn::pawn_attacks(self.side_to_move.opposite(), pawn);
+        }
+        checkers ^= knight_moves;
+        checkers ^= pawn_attacks;
+
+        (pinned, checkers)
     }
 
     fn get_ray(&self, sq1: Square, sq2: Square) -> Bitboard {
@@ -1502,6 +1537,12 @@ mod tests {
     fn perft_starting_position_depth_5() {
         let mut board = Board::default();
         assert_eq!(perft(&mut board, 5), 4_865_609);
+    }
+
+    #[test]
+    fn perft_starting_position_depth_6() {
+        let mut board = Board::from_fen("5K2/8/1Q6/2N5/8/1p2k3/8/8 w - - 0 1").unwrap();
+        assert_eq!(perft(&mut board, 5), 1004658);
     }
 
     #[test]
