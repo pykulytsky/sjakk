@@ -467,7 +467,7 @@ impl Board {
     pub fn make_move_new(&mut self, m: Move) -> Board {
         let mut board = self.clone();
         unsafe { board.make_move_unchecked(m) }
-        return board;
+        board
     }
 
     /// Updates all the bitboards, which are involved in move, updates side to move and moves list.
