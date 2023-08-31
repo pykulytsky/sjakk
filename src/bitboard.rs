@@ -235,6 +235,13 @@ impl std::ops::BitXorAssign<Bitboard> for u64 {
     }
 }
 
+impl std::ops::Mul<Bitboard> for Bitboard {
+    type Output = Self;
+    fn mul(self, rhs: Bitboard) -> Self::Output {
+        Bitboard(self.0 * rhs.0)
+    }
+}
+
 impl Display for Bitboard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f)?;
@@ -331,6 +338,11 @@ impl Bitboard {
     /// Can be used to iterate over all pieces, which exists on particular [`Bitboard`]
     pub fn lsb_square(&self) -> Square {
         Square(self.0.trailing_zeros() as u8)
+    }
+
+    #[inline]
+    pub fn to_size(&self, rightshift: u8) -> usize {
+        (self.0 >> rightshift) as usize
     }
 }
 
