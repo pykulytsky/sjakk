@@ -3,6 +3,8 @@ pub mod between_gen;
 pub mod bitboard;
 pub mod board;
 pub mod constants;
+pub mod gen_moves;
+pub mod magic;
 pub mod moves;
 pub mod parsers;
 pub mod piece;

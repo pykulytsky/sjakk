@@ -1,7 +1,10 @@
 use std::mem::transmute;
 
 use crate::{
-    constants::{CLEAR_FILE, MASK_RANK},
+    constants::CLEAR_FILE,
+    gen_moves::{
+        get_bishop_moves, get_king_moves, get_knight_moves, get_pawn_moves, get_rook_moves,
+    },
     rays::RAY_ATTACKS,
     utils::{bit_scan_forward, bit_scan_reverse, POSITIVE_RAYS},
     Bitboard, Square,
@@ -134,27 +137,13 @@ impl Piece for Pawn {
         occupied: Bitboard,
         own: Bitboard,
     ) -> Bitboard {
-        let sq = square.0;
-        let sq = Bitboard::from_square_number(sq);
-        let one_step = match color {
-            Color::White => (sq << 8) & !occupied.0,
-            Color::Black => (sq >> 8) & !occupied.0,
-        };
-        let two_steps = match color {
-            Color::White => ((one_step & MASK_RANK[2]) << 8) & !occupied.0,
-            Color::Black => ((one_step & MASK_RANK[5]) >> 8) & !occupied.0,
-        };
-        let valid_moves = one_step | two_steps;
-        let pawn_attacks = Self::pawn_attacks(color, square);
-        let enemy = occupied ^ own;
-        let valid_attacks = pawn_attacks & enemy.0;
-
-        valid_moves | valid_attacks
+        get_pawn_moves(square, color, occupied) & !own
     }
 }
 
 impl Pawn {
     pub fn pawn_attacks(color: Color, sq: Square) -> Bitboard {
+        // get_pawn_attacks(sq, color, Bitboard(0))
         let sq = Bitboard::from_square(sq);
         let (left_attack, right_attack) = match color {
             Color::White => ((sq & CLEAR_FILE[0]) << 7, (sq & CLEAR_FILE[7]) << 9),
@@ -165,7 +154,7 @@ impl Pawn {
 }
 
 /// Generates pseudo-legal moves for sliding pieces (Rook, Bishop and Queen).
-fn slideing_piece_pseudo_legal_moves(
+pub fn slideing_piece_pseudo_legal_moves(
     sq: usize,
     occupied: Bitboard,
     own: Bitboard,
@@ -201,8 +190,7 @@ impl Piece for Rook {
         occupied: Bitboard,
         own: Bitboard,
     ) -> Bitboard {
-        let sq = square.0 as usize;
-        slideing_piece_pseudo_legal_moves(sq, occupied, own, 0)
+        get_rook_moves(square, occupied) & !own
     }
 }
 
@@ -215,8 +203,7 @@ impl Piece for Bishop {
         occupied: Bitboard,
         own: Bitboard,
     ) -> Bitboard {
-        let sq = square.0 as usize;
-        slideing_piece_pseudo_legal_moves(sq, occupied, own, 1)
+        get_bishop_moves(square, occupied) & !own
     }
 }
 
@@ -229,9 +216,7 @@ impl Piece for Queen {
         occupied: Bitboard,
         own: Bitboard,
     ) -> Bitboard {
-        let sq = square.0 as usize;
-        slideing_piece_pseudo_legal_moves(sq, occupied, own, 0)
-            | slideing_piece_pseudo_legal_moves(sq, occupied, own, 1)
+        (get_rook_moves(square, occupied) ^ get_bishop_moves(square, occupied)) & !own
     }
 }
 
@@ -244,30 +229,7 @@ impl Piece for Knight {
         _occupied: Bitboard,
         own: Bitboard,
     ) -> Bitboard {
-        let src = Bitboard::from_square(square);
-        let spot1_clip = CLEAR_FILE[0] & CLEAR_FILE[1];
-        let spot2_clip = CLEAR_FILE[0];
-        let spot3_clip = CLEAR_FILE[7];
-        let spot4_clip = CLEAR_FILE[7] & CLEAR_FILE[6];
-        let spot5_clip = CLEAR_FILE[7] & CLEAR_FILE[6];
-        let spot6_clip = CLEAR_FILE[7];
-        let spot7_clip = CLEAR_FILE[0];
-        let spot8_clip = CLEAR_FILE[0] & CLEAR_FILE[1];
-
-        let spot_1 = (src.0 & spot1_clip) << 6;
-        let spot_2 = (src.0 & spot2_clip) << 15;
-        let spot_3 = (src.0 & spot3_clip) << 17;
-        let spot_4 = (src.0 & spot4_clip) << 10;
-
-        let spot_5 = (src.0 & spot5_clip) >> 6;
-        let spot_6 = (src.0 & spot6_clip) >> 15;
-        let spot_7 = (src.0 & spot7_clip) >> 17;
-        let spot_8 = (src.0 & spot8_clip) >> 10;
-
-        let valid_moves = spot_1 | spot_2 | spot_3 | spot_4 | spot_5 | spot_6 | spot_7 | spot_8;
-        let valid_moves = valid_moves & !own.0;
-
-        Bitboard(valid_moves)
+        get_knight_moves(square) & !own
     }
 }
 
@@ -280,24 +242,7 @@ impl Piece for King {
         _occupied: Bitboard,
         own: Bitboard,
     ) -> Bitboard {
-        let src = Bitboard::from_square(square);
-        let king_clip_file_h = src.0 & CLEAR_FILE[7];
-        let king_clip_file_a = src.0 & CLEAR_FILE[0];
-
-        let spot_1 = king_clip_file_a << 7;
-        let spot_2 = src.0 << 8;
-        let spot_3 = king_clip_file_h << 9;
-        let spot_4 = king_clip_file_h << 1;
-
-        let spot_5 = king_clip_file_h >> 7;
-        let spot_6 = src.0 >> 8;
-        let spot_7 = king_clip_file_a >> 9;
-        let spot_8 = king_clip_file_a >> 1;
-
-        let valid_moves = spot_1 | spot_2 | spot_3 | spot_4 | spot_5 | spot_6 | spot_7 | spot_8;
-        let valid_moves = valid_moves & !own.0;
-
-        Bitboard(valid_moves)
+        get_king_moves(square) & !own
     }
 }
 
