@@ -189,14 +189,14 @@ impl Board {
     }
 
     #[inline]
-    pub fn legal_moves(&mut self) -> SmallVec<[Move; 18]> {
+    pub fn legal_moves(&mut self) -> SmallVec<[Move; 32]> {
         let (pinned_bb, checkers) = self.find_pinned();
         let (own_pieces, own_combined) = match self.side_to_move {
             Color::White => (self.white_pieces, self.white),
             Color::Black => (self.black_pieces, self.black),
         };
         let enemy = self.pieces_combined(self.side_to_move.opposite());
-        let mut moves = smallvec![];
+        let mut moves = SmallVec::with_capacity(32);
 
         let ksq = own_pieces[PieceType::King as usize].lsb_square();
 
@@ -270,7 +270,7 @@ impl Board {
         moves
     }
 
-    fn castling_rules(&self, moves: &mut SmallVec<[Move; 18]>) {
+    fn castling_rules(&self, moves: &mut SmallVec<[Move; 32]>) {
         match (self.side_to_move, self.available_castling()) {
             (Color::White, Some(castling)) => match castling {
                 CastlingSide::KingSide => {
@@ -359,7 +359,7 @@ impl Board {
     #[inline]
     fn fill_move_list(
         &self,
-        move_list: &mut SmallVec<[Move; 18]>,
+        move_list: &mut SmallVec<[Move; 32]>,
         sq: Square,
         moves: Bitboard,
         piece: PieceType,
