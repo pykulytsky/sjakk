@@ -214,3 +214,131 @@ impl Display for Move {
         Ok(())
     }
 }
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Move1 {
+    repr: u16,
+}
+
+impl Move1 {
+    pub const EMPTY: Self = Self { repr: 0 };
+    pub fn new(from: Square, to: Square) -> Self {
+        Self {
+            repr: u16::from(from.0) | (u16::from(to.0) << 6),
+        }
+    }
+    pub fn new_promotion(from: Square, to: Square, promotion: PieceType) -> Self {
+        let promotion = u16::from(promotion as u8).wrapping_sub(1) & 0b11;
+
+        Self {
+            repr: u16::from(from.0)
+                | (u16::from(to.0) << 6)
+                | (promotion << 12)
+                | 0b1100_0000_0000_0000,
+        }
+    }
+
+    pub fn new_en_passant(from: Square, to: Square) -> Self {
+        Self {
+            repr: u16::from(from.0) | (u16::from(to.0) << 6) | 0b0100_0000_0000_0000,
+        }
+    }
+
+    pub fn new_castle(from: Square, to: Square) -> Self {
+        Self {
+            repr: u16::from(from.0) | (u16::from(to.0) << 6) | 0b1000_0000_0000_0000,
+        }
+    }
+
+    pub fn from(&self) -> Square {
+        Square((self.repr & 0b11_1111) as u8)
+    }
+
+    pub fn to(&self) -> Square {
+        Square(((self.repr >> 6) & 0b11_1111) as u8)
+    }
+
+    pub const fn is_promotion(&self) -> bool {
+        (self.repr & 0b1100_0000_0000_0000) == 0b1100_0000_0000_0000
+    }
+
+    pub const fn is_en_passant(&self) -> bool {
+        (self.repr & 0b0100_0000_0000_0000) != 0 && self.repr & 0b1000_0000_0000_0000 == 0
+    }
+
+    pub const fn is_castle(&self) -> bool {
+        (self.repr & 0b1000_0000_0000_0000) != 0 && self.repr & 0b0100_0000_0000_0000 == 0
+    }
+    pub fn promotion_to(self) -> Option<PieceType> {
+        if !self.is_promotion() {
+            return None;
+        }
+        let output = PieceType::from_index((((self.repr >> 12) & 0b11) as u8 + 1) as usize);
+        Some(output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn quiet_move() {
+        let m = Move1::new(Square(10), Square(18));
+        assert_eq!(m.from(), Square(10));
+        assert_eq!(m.to(), Square(18));
+    }
+
+    #[test]
+    fn castle() {
+        let m = Move1::new_castle(Square(10), Square(18));
+        assert!(m.is_castle());
+    }
+
+    #[test]
+    fn promotion() {
+        let m = Move1::new_promotion(Square(10), Square(18), PieceType::Queen);
+        assert!(m.is_promotion());
+        assert_eq!(m.promotion_to(), Some(PieceType::Queen));
+    }
+
+    #[test]
+    fn en_passant() {
+        let m = Move1::new_en_passant(Square(33), Square(40));
+        assert!(m.is_en_passant());
+    }
+}
+
+pub const MAX_MOVELIST_LEN: usize = 64;
+
+#[derive(Debug, Clone)]
+pub struct MoveList {
+    pub inner: [Move1; MAX_MOVELIST_LEN],
+    len: usize,
+}
+
+impl MoveList {
+    pub const fn new() -> Self {
+        Self {
+            inner: [Move1::EMPTY; MAX_MOVELIST_LEN],
+            len: 0,
+        }
+    }
+    pub fn push(&mut self, m: Move1) {
+        self.inner[self.len] = m;
+        self.len += 1;
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &Move1> {
+        self.inner[..self.len].iter()
+    }
+
+    pub fn as_slice(&self) -> &[Move1] {
+        &self.inner[..self.len]
+    }
+
+    pub fn as_slice_mut(&mut self) -> &mut [Move1] {
+        &mut self.inner[..self.len]
+    }
+    pub fn len(&self) -> usize {
+        self.len
+    }
+}

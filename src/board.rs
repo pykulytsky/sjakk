@@ -7,7 +7,7 @@ use crate::{
     gen_moves::{
         get_bishop_moves, get_king_moves, get_knight_moves, get_pawn_attacks, get_rook_moves,
     },
-    moves::{CastlingSide, Move, MoveType},
+    moves::{CastlingSide, Move, Move1, MoveType},
     parsers::fen::{self, FENParseError, FEN},
     piece::{Color, Pawn, PieceType},
     rays::{BISHOP_ATTACKS, RAY_ATTACKS, ROOK_ATTACKS},
@@ -181,6 +181,23 @@ impl Board {
             Color::White => self.white,
             Color::Black => self.black,
         }
+    }
+
+    #[inline]
+    pub fn captured_piece(&self, m: &Move1) -> Option<PieceType> {
+        let pieces = self.pieces(self.side_to_move.opposite());
+        PieceType::ALL
+            .into_iter()
+            .find(|piece| (pieces[piece.to_owned() as usize] & (1 << m.to().0)) != 0)
+    }
+
+    #[inline]
+    pub fn moved_piece(&self, m: &Move1) -> PieceType {
+        let pieces = self.pieces(self.side_to_move);
+        PieceType::ALL
+            .into_iter()
+            .find(|piece| (pieces[piece.to_owned() as usize] & (1 << m.from().0)) != 0)
+            .unwrap()
     }
 
     #[inline]
@@ -1596,5 +1613,21 @@ mod tests {
     fn position_3_depth_2() {
         let mut board = Board::from_fen("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1").unwrap();
         assert_eq!(perft(&mut board, 2), 191);
+    }
+
+    #[test]
+    fn moved_piece() {
+        let board = Board::default();
+        let m = Move1::new(Square(8), Square(16));
+        assert_eq!(board.moved_piece(&m), PieceType::Pawn);
+        assert_eq!(board.captured_piece(&m), None);
+    }
+
+    #[test]
+    fn captured_piece() {
+        let board = Board::from_fen("5K1n/8/8/8/8/8/3k4/B7 w - - 0 1").unwrap();
+        let m = Move1::new(Square(0), Square(63));
+        assert_eq!(board.moved_piece(&m), PieceType::Bishop);
+        assert_eq!(board.captured_piece(&m), Some(PieceType::Knight));
     }
 }
