@@ -494,6 +494,9 @@ impl Board {
     /// This method does not check if provided move is a valid move, it may break representation of
     /// the game. Use it only with moves, received from [`Self::pseudo_legal_moves`]. Otherwise use [`Self::make_move`].
     pub unsafe fn make_move_unchecked(&mut self, m: Move) {
+        if m.piece == PieceType::Pawn {
+            self.halfmoves = 0;
+        }
         if m.capture.is_none() && m.piece != PieceType::Pawn {
             self.halfmoves += 1;
 
