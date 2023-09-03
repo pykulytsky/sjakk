@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, ops::Index};
 
 use crate::{piece::PieceType, Bitboard, Color, Square};
 
@@ -276,6 +276,25 @@ impl Move1 {
         let output = PieceType::from_index((((self.repr >> 12) & 0b11) as u8 + 1) as usize);
         Some(output)
     }
+
+    pub fn en_passant_target(&self) -> Option<Square> {
+        if self.is_en_passant() {
+            if self.from() > self.to() {
+                // black pawn
+                return Some(Square(self.to().0 - 8));
+            } else {
+                // white pawnt
+                return Some(Square(self.to().0 + 8));
+            }
+        }
+        None
+    }
+}
+
+impl Display for Move1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}", self.from(), self.to())
+    }
 }
 
 #[cfg(test)]
@@ -308,7 +327,7 @@ mod tests {
     }
 }
 
-pub const MAX_MOVELIST_LEN: usize = 64;
+pub const MAX_MOVELIST_LEN: usize = 108;
 
 #[derive(Debug, Clone)]
 pub struct MoveList {
@@ -340,5 +359,17 @@ impl MoveList {
     }
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+impl Index<usize> for MoveList {
+    type Output = Move1;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.inner[..self.len][index]
     }
 }
