@@ -8,7 +8,7 @@ use crate::{
         get_bishop_moves, get_bishop_rays, get_king_moves, get_knight_moves, get_pawn_attacks,
         get_rook_moves, get_rook_rays,
     },
-    moves::{CastlingSide, Move1, MoveList},
+    moves::{CastlingSide, Move, MoveList},
     parsers::fen::{self, FENParseError, FEN},
     piece::{Color, Pawn, PieceType},
     rays::{BISHOP_ATTACKS, RAY_ATTACKS, ROOK_ATTACKS},
@@ -129,7 +129,7 @@ pub struct Board {
     pub black_pieces: [Bitboard; 6],
     pub white: Bitboard,
     pub black: Bitboard,
-    pub move_list: SmallVec<[Move1; 256]>,
+    pub move_list: SmallVec<[Move; 256]>,
     pub halfmoves: u16,
     pub side_to_move: Color,
     pub status: Status,
@@ -187,7 +187,7 @@ impl Board {
     }
 
     #[inline]
-    pub fn captured_piece(&self, m: &Move1) -> Option<PieceType> {
+    pub fn captured_piece(&self, m: &Move) -> Option<PieceType> {
         let pieces = self.pieces(self.side_to_move.opposite());
         PieceType::ALL
             .into_iter()
@@ -195,7 +195,7 @@ impl Board {
     }
 
     #[inline]
-    pub fn moved_piece(&self, m: &Move1) -> PieceType {
+    pub fn moved_piece(&self, m: &Move) -> PieceType {
         let pieces = self.pieces(self.side_to_move);
         PieceType::ALL
             .into_iter()
@@ -234,7 +234,7 @@ impl Board {
 
             for sq in bb {
                 if self.attacks_to(sq, self.side_to_move.opposite(), self.all_pieces()) == 0 {
-                    moves.push(Move1::new(ksq, sq));
+                    moves.push(Move::new(ksq, sq));
                 }
             }
 
@@ -256,7 +256,7 @@ impl Board {
                     for sq in bb {
                         if self.attacks_to(sq, self.side_to_move.opposite(), self.all_pieces()) == 0
                         {
-                            moves.push(Move1::new(ksq, sq));
+                            moves.push(Move::new(ksq, sq));
                         }
                     }
                     continue;
@@ -289,26 +289,26 @@ impl Board {
         match (self.side_to_move, self.available_castling()) {
             (Color::White, Some(castling)) => match castling {
                 CastlingSide::KingSide => {
-                    moves.push(Move1::new_castle(Square::E1, Square::G1));
+                    moves.push(Move::new_castle(Square::E1, Square::G1));
                 }
                 CastlingSide::QueenSide => {
-                    moves.push(Move1::new_castle(Square::E1, Square::C1));
+                    moves.push(Move::new_castle(Square::E1, Square::C1));
                 }
                 CastlingSide::Both => {
-                    moves.push(Move1::new_castle(Square::E1, Square::G1));
-                    moves.push(Move1::new_castle(Square::E1, Square::C1));
+                    moves.push(Move::new_castle(Square::E1, Square::G1));
+                    moves.push(Move::new_castle(Square::E1, Square::C1));
                 }
             },
             (Color::Black, Some(castling)) => match castling {
                 CastlingSide::KingSide => {
-                    moves.push(Move1::new_castle(Square::E8, Square::G8));
+                    moves.push(Move::new_castle(Square::E8, Square::G8));
                 }
                 CastlingSide::QueenSide => {
-                    moves.push(Move1::new_castle(Square::E8, Square::C8));
+                    moves.push(Move::new_castle(Square::E8, Square::C8));
                 }
                 CastlingSide::Both => {
-                    moves.push(Move1::new_castle(Square::E8, Square::G8));
-                    moves.push(Move1::new_castle(Square::E8, Square::C8));
+                    moves.push(Move::new_castle(Square::E8, Square::G8));
+                    moves.push(Move::new_castle(Square::E8, Square::C8));
                 }
             },
             _ => {}
@@ -328,12 +328,12 @@ impl Board {
                 && ((m.rank() == Rank::Rank8 && self.side_to_move == Color::White)
                     || (m.rank() == Rank::Rank1 && self.side_to_move == Color::Black))
             {
-                move_list.push(Move1::new_promotion(sq, m, PieceType::Queen));
-                move_list.push(Move1::new_promotion(sq, m, PieceType::Rook));
-                move_list.push(Move1::new_promotion(sq, m, PieceType::Bishop));
-                move_list.push(Move1::new_promotion(sq, m, PieceType::Knight));
+                move_list.push(Move::new_promotion(sq, m, PieceType::Queen));
+                move_list.push(Move::new_promotion(sq, m, PieceType::Rook));
+                move_list.push(Move::new_promotion(sq, m, PieceType::Bishop));
+                move_list.push(Move::new_promotion(sq, m, PieceType::Knight));
             } else {
-                move_list.push(Move1::new(sq, m));
+                move_list.push(Move::new(sq, m));
             }
         }
     }
@@ -386,7 +386,7 @@ impl Board {
         false
     }
 
-    pub fn make_move(&mut self, m: &Move1) -> Result<(), IllegalMove> {
+    pub fn make_move(&mut self, m: &Move) -> Result<(), IllegalMove> {
         if self.legal_moves().inner.contains(m) {
             unsafe { self.make_move_unchecked(m) }
             return Ok(());
@@ -395,7 +395,7 @@ impl Board {
         Err(IllegalMove)
     }
 
-    pub fn make_move_new(&mut self, m: &Move1) -> Board {
+    pub fn make_move_new(&mut self, m: &Move) -> Board {
         let mut board = self.clone();
         unsafe { board.make_move_unchecked(m) }
         board
@@ -406,7 +406,7 @@ impl Board {
     /// # Safety
     /// This method does not check if provided move is a valid move, it may break representation of
     /// the game. Use it only with moves, received from [`Self::pseudo_legal_moves`]. Otherwise use [`Self::make_move`].
-    pub unsafe fn make_move_unchecked(&mut self, m: &Move1) {
+    pub unsafe fn make_move_unchecked(&mut self, m: &Move) {
         let piece = self.moved_piece(m);
         let captured = self.captured_piece(m);
         if piece == PieceType::Pawn {
@@ -465,13 +465,6 @@ impl Board {
                 _ => {}
             }
         }
-        // m.update_position(
-        //     &mut self.white_pieces,
-        //     &mut self.black_pieces,
-        //     &mut self.white,
-        //     &mut self.black,
-        //     self.side_to_move,
-        // );
         if piece == PieceType::Pawn
             && ((m.from().rank() == Rank::Rank2 && m.to().rank() == Rank::Rank4)
                 || (m.from().rank() == Rank::Rank7 && m.to().rank() == Rank::Rank5))
@@ -491,7 +484,7 @@ impl Board {
     }
 
     #[inline]
-    fn update_position(&mut self, m: &Move1) {
+    fn update_position(&mut self, m: &Move) {
         let piece = self.moved_piece(m);
         let capture = self.captured_piece(m);
         let from_bb = Bitboard::from_square(m.from());
@@ -685,7 +678,7 @@ impl Board {
                         continue;
                     }
                 }
-                moves.push(Move1::new_en_passant(target, target_square))
+                moves.push(Move::new_en_passant(target, target_square))
             }
         }
     }
@@ -945,13 +938,13 @@ impl From<FEN> for Board {
                 Rank::Rank3 => {
                     let from_square = Square::from_file_and_rank(square.file(), Rank::Rank2);
                     let to_square = Square::from_file_and_rank(square.file(), Rank::Rank4);
-                    move_list.push(Move1::new(from_square, to_square));
+                    move_list.push(Move::new(from_square, to_square));
                 }
                 // Black pawn moved 2 squares up.
                 Rank::Rank6 => {
                     let from_square = Square::from_file_and_rank(square.file(), Rank::Rank7);
                     let to_square = Square::from_file_and_rank(square.file(), Rank::Rank5);
-                    move_list.push(Move1::new(from_square, to_square));
+                    move_list.push(Move::new(from_square, to_square));
                 }
                 _ => unreachable!(),
             }
@@ -1097,7 +1090,7 @@ impl Iterator for IntoIter {
         let m = if let Some(m) = moves.iter().find(|m| m.is_castle()) {
             m.to_owned()
         } else {
-            let captures: Vec<&Move1> = moves
+            let captures: Vec<&Move> = moves
                 .iter()
                 .filter(|m| self.board.captured_piece(m).is_some())
                 .collect();
@@ -1223,7 +1216,7 @@ mod tests {
         let mut board = Board::from_fen("8/3k4/4p3/3R4/8/7B/8/6K1 b - - 0 1").unwrap();
         let moves = board.legal_moves();
 
-        assert!(!moves.inner.contains(&Move1::new(
+        assert!(!moves.inner.contains(&Move::new(
             Square::from_str("e6").unwrap(),
             Square::from_str("d5").unwrap(),
         )));
@@ -1514,7 +1507,7 @@ mod tests {
     #[test]
     fn moved_piece() {
         let board = Board::default();
-        let m = Move1::new(Square(8), Square(16));
+        let m = Move::new(Square(8), Square(16));
         assert_eq!(board.moved_piece(&m), PieceType::Pawn);
         assert_eq!(board.captured_piece(&m), None);
     }
@@ -1522,7 +1515,7 @@ mod tests {
     #[test]
     fn captured_piece() {
         let board = Board::from_fen("5K1n/8/8/8/8/8/3k4/B7 w - - 0 1").unwrap();
-        let m = Move1::new(Square(0), Square(63));
+        let m = Move::new(Square(0), Square(63));
         assert_eq!(board.moved_piece(&m), PieceType::Bishop);
         assert_eq!(board.captured_piece(&m), Some(PieceType::Knight));
     }
