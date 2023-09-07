@@ -741,6 +741,7 @@ impl Board {
         (pinned, checkers)
     }
 
+    #[inline]
     fn get_ray(&self, sq1: Square, sq2: Square) -> Bitboard {
         Bitboard(
             RAY_ATTACKS[sq1.0 as usize]
