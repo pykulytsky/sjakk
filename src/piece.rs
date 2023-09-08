@@ -23,6 +23,13 @@ impl Color {
             Color::Black => Color::White,
         }
     }
+
+    pub fn eval_mask(&self) -> i32 {
+        match self {
+            Color::White => 1,
+            Color::Black => -1,
+        }
+    }
 }
 
 impl ToString for Color {
@@ -55,6 +62,19 @@ impl PieceType {
         Self::Queen,
         Self::King,
     ];
+
+    #[inline]
+    pub fn value(&self) -> u32 {
+        match self {
+            PieceType::Pawn => 1,
+            PieceType::Rook => 5,
+            PieceType::Knight => 3,
+            PieceType::Bishop => 3,
+            PieceType::Queen => 9,
+            PieceType::King => 255,
+        }
+    }
+
     /// Generates pseudo legal moves, for given piece.
     pub fn pseudo_legal_moves(
         &self,

@@ -340,6 +340,12 @@ impl Bitboard {
         Square(bit_scan_forward(self.0))
     }
 
+    /// Calculate population count of current bitobard.
+    #[inline]
+    pub fn popcnt(&self) -> u32 {
+        self.0.count_ones()
+    }
+
     #[inline]
     pub fn to_size(&self, rightshift: u8) -> usize {
         (self.0 >> rightshift) as usize

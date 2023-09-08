@@ -209,7 +209,7 @@ impl Board {
     }
 
     #[inline]
-    pub fn legal_moves(&mut self) -> MoveList {
+    pub fn legal_moves(&self) -> MoveList {
         let (pinned_bb, checkers) = self.find_pinned();
         let (own_pieces, own_combined) = match self.side_to_move {
             Color::White => (self.white_pieces, self.white),
@@ -238,7 +238,6 @@ impl Board {
                 }
             }
 
-            self.set_status(moves.len(), checkers.0.count_ones() != 0);
             return moves;
         }
         for piece in PieceType::ALL {
@@ -281,7 +280,6 @@ impl Board {
             self.castling_rules(&mut moves);
         }
         self.available_en_passant(&mut moves, checkers, check_mask, pinned_bb);
-        self.set_status(moves.len(), checkers.0.count_ones() != 0);
         moves
     }
 
@@ -747,7 +745,10 @@ impl Board {
             RAY_ATTACKS[sq1.0 as usize]
                 .into_iter()
                 .find(|r| r & Bitboard::from_square(sq2).0 != 0)
-                .unwrap(),
+                .unwrap_or_else(|| {
+                    dbg!(sq1, sq2);
+                    panic!("ray");
+                }),
         )
     }
 
@@ -822,6 +823,77 @@ impl Board {
             (true, false, false) => None,
             (false, _, _) => None,
         }
+    }
+
+    #[inline]
+    pub fn material(&self) -> i32 {
+        PieceType::ALL
+            .into_iter()
+            .map(|p| {
+                p.value()
+                    * (self.pieces(Color::White)[p as usize].0.count_ones()
+                        - self.pieces(Color::Black)[p as usize].0.count_ones())
+            })
+            .reduce(|acc, m| acc + m)
+            .unwrap() as i32
+    }
+
+    #[inline]
+    pub fn mobility(&mut self) -> i32 {
+        let original_side = self.side_to_move;
+        self.side_to_move = Color::White;
+        let white_moves = self.legal_moves();
+        self.side_to_move = Color::Black;
+        let black_moves = self.legal_moves();
+        self.side_to_move = original_side;
+
+        (white_moves.len() - black_moves.len()) as i32 / 4
+    }
+
+    #[inline]
+    pub fn evaluate(&mut self) -> i32 {
+        self.material() + self.mobility()
+    }
+
+    #[inline]
+    pub fn evaluate_relative(&mut self) -> i32 {
+        self.evaluate() * self.side_to_move.eval_mask()
+    }
+
+    #[inline]
+    pub fn negamax(&mut self, depth: usize) -> i32 {
+        if depth == 0 {
+            return self.evaluate_relative();
+        }
+        let mut max = -i32::MAX;
+        let moves = self.legal_moves();
+        for m in moves.iter() {
+            let mut board = self.make_move_new(m);
+            let score = -board.negamax(depth - 1);
+            if score > max {
+                max = score;
+            }
+        }
+        max
+    }
+
+    #[inline]
+    pub fn negamax_root(&mut self, depth: usize) -> (i32, Option<Move>) {
+        let mut max = -i32::MAX;
+        let moves = self.legal_moves();
+        if moves.len() == 0 {
+            return (max, None);
+        }
+        let mut mv = moves.inner.get(0).copied();
+        for m in moves.iter() {
+            let mut board = self.make_move_new(m);
+            let score = -board.negamax(depth - 1);
+            if score > max {
+                max = score;
+                mv = Some(m.to_owned());
+            }
+        }
+        (max, mv)
     }
 }
 
@@ -1082,6 +1154,10 @@ impl Iterator for IntoIter {
     type Item = Position;
     fn next(&mut self) -> Option<Self::Item> {
         let moves = self.board.legal_moves();
+        if moves.len() == 0 {
+            self.board.status = Status::Checkmate(self.board.side_to_move.opposite());
+            return None;
+        }
         if self.board.status != Status::Ongoing || self.board.move_list.len() == 250 {
             println!("{:?}", self.board.status);
             return None;
@@ -1125,7 +1201,7 @@ mod tests {
 
     #[test]
     fn en_passant_target() {
-        let mut board =
+        let board =
             Board::from_fen("rnbqkbnr/p1p1pppp/1p6/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3")
                 .unwrap();
         assert_eq!(board.move_list.len(), 1);
@@ -1139,7 +1215,7 @@ mod tests {
 
     #[test]
     fn en_passant_under_pin() {
-        let mut board = Board::from_fen("3kq3/8/8/4Pp2/8/8/8/4K3 w - f6 0 1").unwrap();
+        let board = Board::from_fen("3kq3/8/8/4Pp2/8/8/8/4K3 w - f6 0 1").unwrap();
         let moves = board.legal_moves();
 
         assert_eq!(moves.iter().filter(|m| m.is_en_passant()).count(), 0);
@@ -1149,7 +1225,7 @@ mod tests {
 
     #[test]
     fn en_passant_under_pin_in_ray() {
-        let mut board = Board::from_fen("2k4b/8/8/4Pp2/8/8/1K6/8 w - f6 0 1").unwrap();
+        let board = Board::from_fen("2k4b/8/8/4Pp2/8/8/1K6/8 w - f6 0 1").unwrap();
         let moves = board.legal_moves();
 
         assert_ne!(moves.iter().filter(|m| m.is_en_passant()).count(), 0);
@@ -1159,7 +1235,7 @@ mod tests {
 
     #[test]
     fn en_passant_under_pin_target_square_in_ray() {
-        let mut board = Board::from_fen("8/8/1K5q/3pP3/8/8/8/7k w - d6 0 1").unwrap();
+        let board = Board::from_fen("8/8/1K5q/3pP3/8/8/8/7k w - d6 0 1").unwrap();
         let moves = board.legal_moves();
 
         assert_ne!(moves.iter().filter(|m| m.is_en_passant()).count(), 0);
@@ -1188,7 +1264,7 @@ mod tests {
 
     #[test]
     fn pin() {
-        let mut board = Board::from_fen("4k3/8/7b/8/8/4P3/3K4/8 w - - 0 1").unwrap();
+        let board = Board::from_fen("4k3/8/7b/8/8/4P3/3K4/8 w - - 0 1").unwrap();
         let moves = board.legal_moves();
 
         assert!(board.pinned(Square::from_str("e3").unwrap()).is_some());
@@ -1214,7 +1290,7 @@ mod tests {
 
     #[test]
     fn pinned_piece_can_not_capture_attacking_piece() {
-        let mut board = Board::from_fen("8/3k4/4p3/3R4/8/7B/8/6K1 b - - 0 1").unwrap();
+        let board = Board::from_fen("8/3k4/4p3/3R4/8/7B/8/6K1 b - - 0 1").unwrap();
         let moves = board.legal_moves();
 
         assert!(!moves.inner.contains(&Move::new(
@@ -1239,7 +1315,7 @@ mod tests {
 
     #[test]
     fn double_check() {
-        let mut board = Board::from_fen("2nk4/8/8/8/7B/8/3R4/6K1 b - - 0 1").unwrap();
+        let board = Board::from_fen("2nk4/8/8/8/7B/8/3R4/6K1 b - - 0 1").unwrap();
         let moves = board.legal_moves();
 
         assert!(moves.iter().all(|m| {
@@ -1250,7 +1326,7 @@ mod tests {
 
     #[test]
     fn check_whith_knight() {
-        let mut board = Board::from_fen("8/3n4/1p4N1/8/1P5k/8/5K2/8 b - - 41 39").unwrap();
+        let board = Board::from_fen("8/3n4/1p4N1/8/1P5k/8/5K2/8 b - - 41 39").unwrap();
         let moves = board.legal_moves();
 
         assert!(board.find_pinned().1 .0.count_ones() == 1);
@@ -1352,7 +1428,7 @@ mod tests {
 
     #[test]
     fn check() {
-        let mut board = Board::from_fen("4k3/3r4/8/8/8/8/3K4/5B2 w - - 0 1").unwrap();
+        let board = Board::from_fen("4k3/3r4/8/8/8/8/3K4/5B2 w - - 0 1").unwrap();
         assert!(board.find_pinned().1 .0.count_ones() == 1);
         let moves = board.legal_moves();
         assert_eq!(moves.len(), 7);
@@ -1363,20 +1439,20 @@ mod tests {
 
     #[test]
     fn mate() {
-        let mut board = Board::from_fen("3k4/2R1Q3/8/8/8/8/8/5K2 b - - 0 1").unwrap();
+        let board = Board::from_fen("3k4/2R1Q3/8/8/8/8/8/5K2 b - - 0 1").unwrap();
         assert!(board.find_pinned().1 .0.count_ones() == 1);
         let moves = board.legal_moves();
         assert!(moves.is_empty());
-        assert_eq!(board.status, Status::Checkmate(Color::White));
+        assert_eq!(board.find_pinned().1 .0.count_ones(), 1);
     }
 
     #[test]
     fn stalemate() {
-        let mut board = Board::from_fen("k7/2R5/8/8/1Q6/8/5p2/5K2 b - - 0 1").unwrap();
+        let board = Board::from_fen("k7/2R5/8/8/1Q6/8/5p2/5K2 b - - 0 1").unwrap();
         assert!(board.find_pinned().1 .0.count_ones() == 0);
         let moves = board.legal_moves();
         assert!(moves.is_empty());
-        assert_eq!(board.status, Status::Stalemate);
+        assert_eq!(board.find_pinned().1 .0.count_ones(), 0);
     }
 
     #[test]
@@ -1429,7 +1505,7 @@ mod tests {
 
     #[test]
     fn protected_pieces() {
-        let mut board = Board::from_fen("1b4k1/8/8/8/5r2/4K3/8/8 w - - 0 1").unwrap();
+        let board = Board::from_fen("1b4k1/8/8/8/5r2/4K3/8/8 w - - 0 1").unwrap();
         let moves = board.legal_moves();
         assert_eq!(moves.len(), 3);
         assert!(!moves.iter().any(|m| {
