@@ -1,9 +1,18 @@
+use std::{
+    collections::VecDeque,
+    sync::{
+        atomic::{AtomicI32, AtomicU32, Ordering},
+        Arc,
+    },
+};
+
+use futures::executor::ThreadPool;
 use rand::seq::SliceRandom;
 use smallvec::{smallvec, SmallVec};
 use thiserror::Error;
 
 use crate::{
-    constants::{self},
+    constants::{self, CENTRAL_SQUARES},
     gen_moves::{
         get_bishop_moves, get_bishop_rays, get_king_moves, get_knight_moves, get_pawn_attacks,
         get_rook_moves, get_rook_rays,
@@ -681,7 +690,7 @@ impl Board {
         }
     }
 
-    fn set_status(&mut self, num_of_legal_moves: usize, king_in_check: bool) {
+    pub fn set_status(&mut self, num_of_legal_moves: usize, king_in_check: bool) {
         match (king_in_check, num_of_legal_moves) {
             (true, 0) => self.status = Status::Checkmate(self.side_to_move.opposite()),
             (false, 0) => self.status = Status::Stalemate,
@@ -826,20 +835,20 @@ impl Board {
     }
 
     #[inline]
-    pub fn material(&self) -> i32 {
+    pub fn material(&self) -> f32 {
         PieceType::ALL
             .into_iter()
             .map(|p| {
-                p.value()
-                    * (self.pieces(Color::White)[p as usize].0.count_ones()
-                        - self.pieces(Color::Black)[p as usize].0.count_ones())
+                p.value() as f32
+                    * (self.pieces(Color::White)[p as usize].0.count_ones() as f32
+                        - self.pieces(Color::Black)[p as usize].0.count_ones() as f32)
             })
             .reduce(|acc, m| acc + m)
-            .unwrap() as i32
+            .unwrap()
     }
 
     #[inline]
-    pub fn mobility(&mut self) -> i32 {
+    pub fn mobility(&mut self) -> f32 {
         let original_side = self.side_to_move;
         self.side_to_move = Color::White;
         let white_moves = self.legal_moves();
@@ -847,25 +856,25 @@ impl Board {
         let black_moves = self.legal_moves();
         self.side_to_move = original_side;
 
-        (white_moves.len() - black_moves.len()) as i32 / 4
+        (white_moves.len() as f32 - black_moves.len() as f32) * 0.2
     }
 
     #[inline]
-    pub fn evaluate(&mut self) -> i32 {
-        self.material() + self.mobility()
+    pub fn evaluate(&mut self) -> f32 {
+        self.material()
     }
 
     #[inline]
-    pub fn evaluate_relative(&mut self) -> i32 {
-        self.evaluate() * self.side_to_move.eval_mask()
+    pub fn evaluate_relative(&mut self) -> f32 {
+        self.evaluate() * (self.side_to_move.eval_mask() as f32)
     }
 
     #[inline]
-    pub fn negamax(&mut self, depth: usize) -> i32 {
+    pub fn negamax(&mut self, depth: usize) -> f32 {
         if depth == 0 {
             return self.evaluate_relative();
         }
-        let mut max = -i32::MAX;
+        let mut max = -f32::MAX;
         let moves = self.legal_moves();
         for m in moves.iter() {
             let mut board = self.make_move_new(m);
@@ -878,10 +887,10 @@ impl Board {
     }
 
     #[inline]
-    pub fn negamax_root(&mut self, depth: usize) -> (i32, Option<Move>) {
-        let mut max = -i32::MAX;
+    pub fn negamax_root(&mut self, depth: usize) -> (f32, Option<Move>) {
+        let mut max = -f32::MAX;
         let moves = self.legal_moves();
-        if moves.len() == 0 {
+        if moves.is_empty() {
             return (max, None);
         }
         let mut mv = moves.inner.get(0).copied();
@@ -894,6 +903,53 @@ impl Board {
             }
         }
         (max, mv)
+    }
+
+    #[inline]
+    pub fn negamax_root_async(
+        &mut self,
+        depth: usize,
+        executor: &ThreadPool,
+    ) -> (i32, Option<Move>) {
+        let moves = self.legal_moves();
+        if moves.is_empty() {
+            return (i32::MIN, None);
+        }
+        let mut results = VecDeque::new();
+        let sc = Arc::new(AtomicI32::new(i32::MIN));
+        let move_number = Arc::new(AtomicU32::new(0));
+        let barrier = Arc::new(AtomicU32::new(moves.len() as u32));
+        for (i, m) in moves.iter().enumerate() {
+            let m = m.clone().to_owned();
+            let sc = sc.clone();
+            let barrier = barrier.clone();
+            let move_number = move_number.clone();
+            let mut b = self.clone();
+            results.push_back(async move {
+                let result = async move {
+                    let mut board = b.make_move_new(&m);
+                    let score = -board.negamax(depth - 1);
+                    if (score * 100.0) as i32 > sc.load(Ordering::Acquire) {
+                        sc.store((score * 100.0) as i32, Ordering::Release);
+                        move_number.store(i as u32, Ordering::Release);
+                    }
+                    barrier.fetch_sub(1, Ordering::Release);
+                };
+                executor.spawn_ok(result);
+            });
+        }
+        for res in results {
+            futures::executor::block_on(res);
+        }
+
+        while barrier.load(Ordering::Acquire) != 0 {
+            std::hint::spin_loop();
+        }
+
+        (
+            sc.load(Ordering::Acquire),
+            Some(moves[move_number.load(Ordering::Acquire) as usize]),
+        )
     }
 }
 
@@ -1154,7 +1210,7 @@ impl Iterator for IntoIter {
     type Item = Position;
     fn next(&mut self) -> Option<Self::Item> {
         let moves = self.board.legal_moves();
-        if moves.len() == 0 {
+        if moves.is_empty() {
             self.board.status = Status::Checkmate(self.board.side_to_move.opposite());
             return None;
         }
@@ -1546,7 +1602,7 @@ mod tests {
     }
 
     #[test]
-    fn perft_starting_position_depth_6() {
+    fn perft_depth_6() {
         let mut board = Board::from_fen("5K2/8/1Q6/2N5/8/1p2k3/8/8 w - - 0 1").unwrap();
         assert_eq!(perft(&mut board, 5), 1004658);
     }

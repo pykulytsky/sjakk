@@ -196,3 +196,5 @@ pub const ALL_SQUARES: [Square; 64] = [
     Square(62),
     Square(63),
 ];
+
+pub const CENTRAL_SQUARES: [Square; 4] = [Square::D4, Square::E4, Square::D5, Square::E5];

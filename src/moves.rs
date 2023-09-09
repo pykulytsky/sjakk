@@ -75,10 +75,10 @@ impl Move {
         if self.is_en_passant() {
             if self.from() > self.to() {
                 // black pawn
-                return Some(Square(self.to().0 - 8));
-            } else {
-                // white pawnt
                 return Some(Square(self.to().0 + 8));
+            } else {
+                // white pawn
+                return Some(Square(self.to().0 - 8));
             }
         }
         None
