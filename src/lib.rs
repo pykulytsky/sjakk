@@ -4,6 +4,7 @@ pub mod bitboard;
 pub mod board;
 pub mod constants;
 pub mod gen_moves;
+pub mod hashing;
 pub mod magic;
 pub mod moves;
 pub mod parsers;

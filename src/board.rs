@@ -1,8 +1,8 @@
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     sync::{
-        atomic::{AtomicI32, AtomicU32, Ordering},
-        Arc,
+        atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering},
+        Arc, Mutex,
     },
 };
 
@@ -12,11 +12,12 @@ use smallvec::{smallvec, SmallVec};
 use thiserror::Error;
 
 use crate::{
-    constants::{self, CENTRAL_SQUARES},
+    constants,
     gen_moves::{
         get_bishop_moves, get_bishop_rays, get_king_moves, get_knight_moves, get_pawn_attacks,
         get_rook_moves, get_rook_rays,
     },
+    hashing,
     moves::{CastlingSide, Move, MoveList},
     parsers::fen::{self, FENParseError, FEN},
     piece::{Color, Pawn, PieceType},
@@ -144,6 +145,7 @@ pub struct Board {
     pub status: Status,
     pub castling_rights: CastlingRights,
     pub en_passant_square: Option<Square>,
+    hash: u64,
 }
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -163,6 +165,7 @@ impl Board {
             status: Status::Ongoing,
             castling_rights: CastlingRights::default(),
             en_passant_square: None,
+            hash: 0,
         }
     }
 
@@ -416,6 +419,23 @@ impl Board {
     pub unsafe fn make_move_unchecked(&mut self, m: &Move) {
         let piece = self.moved_piece(m);
         let captured = self.captured_piece(m);
+
+        let piece_idx = if self.side_to_move == Color::White {
+            piece as usize
+        } else {
+            piece as usize * 2
+        };
+        self.hash ^= hashing::PIECE_KEYS[piece_idx][m.from().0 as usize];
+        self.hash ^= hashing::PIECE_KEYS[piece_idx][m.to().0 as usize];
+        if let Some(captured) = captured {
+            let piece_idx = if self.side_to_move == Color::White {
+                captured as usize
+            } else {
+                captured as usize * 2
+            };
+            self.hash ^= hashing::PIECE_KEYS[piece_idx][m.to().0 as usize]
+        }
+
         if piece == PieceType::Pawn {
             self.halfmoves = 0;
         }
@@ -426,7 +446,7 @@ impl Board {
                 self.status = Status::Draw(DrawReason::Halfmoves);
             }
         }
-        // upadte castling rights
+        // update castling rights
         match piece {
             PieceType::Rook => match m.from() {
                 Square::A1 => {
@@ -482,11 +502,15 @@ impl Board {
                 Square(m.to().0 + 8)
             };
             self.en_passant_square = Some(square);
+            self.hash ^= hashing::EP_KEYS[square.file() as usize];
         } else if self.en_passant_square.is_some() {
+            let square = self.en_passant_square.unwrap();
+            self.hash ^= hashing::EP_KEYS[square.file() as usize];
             self.en_passant_square = None;
         }
         self.update_position(m);
         self.side_to_move = self.side_to_move.opposite();
+        self.hash ^= hashing::SIDE_KEY;
         self.move_list.push(*m);
     }
 
@@ -887,6 +911,108 @@ impl Board {
     }
 
     #[inline]
+    pub fn alpha_beta_negamax(&mut self, mut alpha: f32, beta: f32, depth: usize) -> f32 {
+        if depth == 0 {
+            return self.evaluate_relative();
+        }
+
+        let moves = self.legal_moves();
+        for m in moves.iter() {
+            let mut board = self.make_move_new(m);
+            let score = -board.alpha_beta_negamax(-beta, -alpha, depth - 1);
+
+            if score >= beta {
+                return score;
+            }
+            if score > alpha {
+                alpha = score;
+            }
+        }
+        alpha
+    }
+
+    #[inline]
+    pub fn alpha_beta_negamax_root(&mut self, depth: usize) -> (f32, Option<Move>) {
+        if depth == 0 {
+            return (f32::MIN, None);
+        }
+        let mut alpha = f32::MIN;
+        let mut alpha_move = None;
+        let beta = f32::MAX;
+        let moves = self.legal_moves();
+        for m in moves.iter() {
+            let mut board = self.make_move_new(m);
+            let score = -board.alpha_beta_negamax(-beta, -alpha, depth - 1);
+            if score >= beta {
+                return (beta, Some(m.to_owned()));
+            }
+            if score > alpha {
+                alpha = score;
+                alpha_move = Some(m.to_owned());
+            }
+        }
+        (alpha, alpha_move)
+    }
+
+    #[inline]
+    pub fn alpha_beta_negamax_root_async(
+        &mut self,
+        depth: usize,
+        executor: &ThreadPool,
+    ) -> (f32, Option<Move>) {
+        let moves = self.legal_moves();
+        if moves.is_empty() {
+            return (f32::MIN, None);
+        }
+        let mut results = VecDeque::new();
+        let move_number = Arc::new(AtomicU32::new(0));
+        let barrier = Arc::new(AtomicU32::new(moves.len() as u32));
+        let alpha = Arc::new(AtomicI32::new(i32::MIN));
+        let beta = Arc::new(f32::MAX);
+        for (i, m) in moves.iter().enumerate() {
+            let m = m.clone().to_owned();
+            let barrier = barrier.clone();
+            let move_number = move_number.clone();
+            let mut b = self.clone();
+            let alpha = alpha.clone();
+            let beta = beta.clone();
+            results.push_back(async move {
+                let result = async move {
+                    let mut board = b.make_move_new(&m);
+                    let score = -board.alpha_beta_negamax(
+                        -(*beta),
+                        -(alpha.load(Ordering::Acquire) as f32 / 1000.0),
+                        depth - 1,
+                    );
+                    if score >= *beta {
+                        alpha.store((*beta * 1000.0) as i32, Ordering::Release);
+                        move_number.store(i as u32, Ordering::Release);
+                        return;
+                    }
+                    if score > alpha.load(Ordering::Acquire) as f32 {
+                        alpha.store((score * 1000.0) as i32, Ordering::Release);
+                        move_number.store(i as u32, Ordering::Release);
+                    }
+                    drop(alpha);
+                    barrier.fetch_sub(1, Ordering::Release);
+                };
+                executor.spawn_ok(result);
+            });
+        }
+        for res in results {
+            futures::executor::block_on(res);
+        }
+
+        while barrier.load(Ordering::Acquire) != 0 {
+            std::hint::spin_loop();
+        }
+        (
+            alpha.load(Ordering::Acquire) as f32 / 1000.0,
+            Some(moves[move_number.load(Ordering::Acquire) as usize]),
+        )
+    }
+
+    #[inline]
     pub fn negamax_root(&mut self, depth: usize) -> (f32, Option<Move>) {
         let mut max = -f32::MAX;
         let moves = self.legal_moves();
@@ -929,8 +1055,8 @@ impl Board {
                 let result = async move {
                     let mut board = b.make_move_new(&m);
                     let score = -board.negamax(depth - 1);
-                    if (score * 100.0) as i32 > sc.load(Ordering::Acquire) {
-                        sc.store((score * 100.0) as i32, Ordering::Release);
+                    if (score * 1000.0) as i32 > sc.load(Ordering::Acquire) {
+                        sc.store((score * 1000.0) as i32, Ordering::Release);
                         move_number.store(i as u32, Ordering::Release);
                     }
                     barrier.fetch_sub(1, Ordering::Release);
@@ -1054,6 +1180,7 @@ impl Default for Board {
             status: Status::Ongoing,
             castling_rights: CastlingRights::default(),
             en_passant_square: None,
+            hash: 0,
         }
     }
 }
@@ -1096,6 +1223,7 @@ impl From<FEN> for Board {
             // TODO: respect here castling rights from FEN
             castling_rights: CastlingRights::from(fen.castling_rules),
             en_passant_square: fen.en_passant_target,
+            hash: 0,
         }
     }
 }
