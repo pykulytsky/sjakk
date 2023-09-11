@@ -24,6 +24,7 @@ fn negamax(c: &mut Criterion) {
 
 fn search(c: &mut Criterion) {
     let mut group = c.benchmark_group("search");
+    let thread_pool = ThreadPool::new().unwrap();
     group.bench_function("alpha beta negamax", |b| {
         let mut board = black_box(Board::default());
         b.iter(|| board.alpha_beta_negamax_root(3));
@@ -34,13 +35,11 @@ fn search(c: &mut Criterion) {
     });
 
     group.bench_function("negamax async", |b| {
-        let thread_pool = ThreadPool::new().unwrap();
         let mut board = black_box(Board::default());
         b.iter(|| board.negamax_root_async(3, &thread_pool));
     });
 
     group.bench_function("alpha beta negamax async", |b| {
-        let thread_pool = ThreadPool::new().unwrap();
         let mut board = black_box(Board::default());
         b.iter(|| board.negamax_root_async(3, &thread_pool));
     });

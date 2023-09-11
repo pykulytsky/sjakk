@@ -1,8 +1,8 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{BTreeMap, VecDeque},
     sync::{
-        atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering},
-        Arc, Mutex,
+        atomic::{AtomicI32, AtomicU32, Ordering},
+        Arc,
     },
 };
 
@@ -12,7 +12,7 @@ use smallvec::{smallvec, SmallVec};
 use thiserror::Error;
 
 use crate::{
-    constants,
+    constants::{self, MASK_RANK},
     gen_moves::{
         get_bishop_moves, get_bishop_rays, get_king_moves, get_knight_moves, get_pawn_attacks,
         get_rook_moves, get_rook_rays,
@@ -701,11 +701,32 @@ impl Board {
             let targets = targets & self.pieces(self.side_to_move)[PieceType::Pawn as usize];
             for target in targets {
                 let pinned = pinned_bb & Bitboard::from_square(target) != 0;
+                let king_square =
+                    self.pieces(self.side_to_move)[PieceType::King as usize].lsb_square();
                 if pinned {
-                    let king_square =
-                        self.pieces(self.side_to_move)[PieceType::King as usize].lsb_square();
                     let pin = self.get_ray(king_square, target);
                     if pin & Bitboard::from_square(target_square) == 0 {
+                        continue;
+                    }
+                }
+                if king_square.rank() == target.rank() {
+                    let mut queens_rooks = self.pieces(self.side_to_move.opposite())
+                        [PieceType::Rook as usize]
+                        | self.pieces(self.side_to_move.opposite())[PieceType::Queen as usize];
+                    if MASK_RANK[king_square.rank() as usize] & queens_rooks != 0
+                        && queens_rooks.any(|attacker| {
+                            let attacks = get_rook_moves(
+                                attacker,
+                                self.all_pieces()
+                                    ^ Bitboard::from_square(target)
+                                    ^ Bitboard::from_square(Square::from_file_and_rank(
+                                        target_square.file(),
+                                        target.rank(),
+                                    )),
+                            );
+                            attacks & Bitboard::from_square(king_square) != 0
+                        })
+                    {
                         continue;
                     }
                 }
@@ -761,11 +782,16 @@ impl Board {
             PieceType::Knight.pseudo_legal_moves(king, self.side_to_move, Bitboard(0), Bitboard(0))
                 & self.pieces_combined(self.side_to_move.opposite())
                 & self.pieces(self.side_to_move.opposite())[PieceType::Knight as usize];
-        let mut pawn_attacks = Bitboard(0);
-        for pawn in self.pieces(self.side_to_move.opposite())[PieceType::Pawn as usize] {
-            pawn_attacks ^= Bitboard::from_square(king)
-                & Pawn::pawn_attacks(self.side_to_move.opposite(), pawn);
-        }
+        // let mut pawn_attacks = Bitboard(0);
+        // for pawn in self.pieces(self.side_to_move.opposite())[PieceType::Pawn as usize] {
+        //     if Bitboard::from_square(king) & Pawn::pawn_attacks(self.side_to_move.opposite(), pawn)
+        //         != 0
+        //     {
+        //         checkers ^= Bitboard::from_square(pawn);
+        //     }
+        // }
+        let pawn_attacks = Pawn::pawn_attacks(self.side_to_move, king)
+            & self.pieces(self.side_to_move.opposite())[PieceType::Pawn as usize];
         checkers ^= knight_moves;
         checkers ^= pawn_attacks;
 
@@ -779,7 +805,6 @@ impl Board {
                 .into_iter()
                 .find(|r| r & Bitboard::from_square(sq2).0 != 0)
                 .unwrap_or_else(|| {
-                    dbg!(sq1, sq2);
                     panic!("ray");
                 }),
         )
@@ -805,7 +830,7 @@ impl Board {
         let mut queen_side_castling_is_attacked = false;
         let mut king_side_castling_is_attacked = false;
         if self.side_to_move == Color::White {
-            for sq in [Square::B1, Square::C1, Square::D1] {
+            for sq in [Square::C1, Square::D1] {
                 if self.is_attacked(sq, Color::Black, self.all_pieces()) {
                     queen_side_castling_is_attacked = true;
                     break;
@@ -818,7 +843,7 @@ impl Board {
                 }
             }
         } else {
-            for sq in [Square::B8, Square::C8, Square::D8] {
+            for sq in [Square::C8, Square::D8] {
                 if self.is_attacked(sq, Color::White, self.all_pieces()) {
                     queen_side_castling_is_attacked = true;
                     break;
@@ -831,7 +856,7 @@ impl Board {
                 }
             }
         }
-        let pieces = self.pieces_combined(self.side_to_move);
+        let pieces = self.all_pieces();
         let king_side = if !king_side_castling_is_attacked {
             (match self.side_to_move {
                 Color::White => (pieces.0 >> 5).trailing_zeros() == 2,
@@ -1098,55 +1123,60 @@ pub fn perft(board: &mut Board, depth: usize) -> usize {
 }
 
 #[inline]
-pub fn perft_detailed(board: &mut Board, depth: usize) -> usize {
+pub fn perft_async(board: &Board, depth: usize, executor: &ThreadPool) -> usize {
     let moves = board.legal_moves();
 
-    let mut final_depth = 0;
+    let final_depth = Arc::new(AtomicU32::new(0));
+    let mut results = VecDeque::new();
+    let barrier = Arc::new(AtomicU32::new(moves.len() as u32));
 
     if depth == 1 {
-        for m in moves.iter() {
-            if m.is_castle() {
-                println!("castle");
-            }
-        }
         moves.len()
     } else {
         for m in moves.iter() {
-            if m.is_castle() {
-                println!("castle");
-            }
-            let mut board = board.make_move_new(m);
-            final_depth += perft_detailed(&mut board, depth - 1);
+            let m = *m;
+            let final_depth = final_depth.clone();
+            let mut board = board.clone();
+            let barrier = barrier.clone();
+            results.push_back(async move {
+                let result = async move {
+                    let mut board = board.make_move_new(&m);
+                    let nodes = perft(&mut board, depth - 1);
+                    final_depth.fetch_add(nodes as u32, Ordering::Release);
+                    barrier.fetch_sub(1, Ordering::Release);
+                };
+
+                executor.spawn_ok(result);
+            });
         }
 
-        final_depth
+        for res in results {
+            futures::executor::block_on(res);
+        }
+
+        while barrier.load(Ordering::Acquire) != 0 {
+            std::hint::spin_loop();
+        }
+
+        final_depth.load(Ordering::Acquire) as usize
     }
 }
 
 #[inline]
-pub fn perft_ep(board: &mut Board, depth: usize) -> usize {
+pub fn perft_detailed(board: &mut Board, depth: usize) -> (BTreeMap<Move, usize>, usize) {
     let moves = board.legal_moves();
 
-    let mut final_depth = 0;
+    let mut nodes = BTreeMap::new();
+    let mut final_nodes = 0;
 
-    if depth == 1 {
-        for m in moves.iter() {
-            if m.is_en_passant() {
-                println!("ep");
-            }
-        }
-        moves.len()
-    } else {
-        for m in moves.iter() {
-            if m.is_en_passant() {
-                println!("ep");
-            }
-            let mut board = board.make_move_new(m);
-            final_depth += perft_ep(&mut board, depth - 1);
-        }
-
-        final_depth
+    for m in moves.iter() {
+        let mut board = board.make_move_new(m);
+        let moves = perft(&mut board, depth - 1);
+        final_nodes += moves;
+        nodes.insert(m.to_owned(), moves);
     }
+
+    (nodes, final_nodes)
 }
 
 impl Default for Board {
@@ -1743,7 +1773,6 @@ mod tests {
         assert_eq!(perft(&mut board, 1), 48);
     }
 
-    #[ignore = "2038, expected to be 2039"]
     #[test]
     fn perft_kiwipete_depth_2() {
         let mut board =
@@ -1753,12 +1782,27 @@ mod tests {
     }
 
     #[test]
+    fn perft_kiwipete_depth_3() {
+        let mut board =
+            Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
+                .unwrap();
+        assert_eq!(perft(&mut board, 3), 97862);
+    }
+
+    #[test]
+    fn perft_kiwipete_depth_4() {
+        let mut board =
+            Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
+                .unwrap();
+        assert_eq!(perft(&mut board, 4), 4085603);
+    }
+
+    #[test]
     fn position_3_depth_1() {
         let mut board = Board::from_fen("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1").unwrap();
         assert_eq!(perft(&mut board, 1), 14);
     }
 
-    #[ignore = "193, expected to be 191"]
     #[test]
     fn position_3_depth_2() {
         let mut board = Board::from_fen("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1").unwrap();
