@@ -1,5 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use sjakk::board::{perft, Board};
+use sjakk::board::Board;
+use sjakk::perft::perft;
 
 fn perft_bench(c: &mut Criterion) {
     c.bench_function("perft", |b| {

@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::VecDeque,
     sync::{
         atomic::{AtomicI32, AtomicU32, Ordering},
         Arc,
@@ -18,7 +18,7 @@ use crate::{
         get_rook_moves, get_rook_rays,
     },
     hashing,
-    moves::{CastlingSide, Move, MoveList},
+    moves::{CastlingSide, Move, MoveList, MoveListSet, MoveSet},
     parsers::fen::{self, FENParseError, FEN},
     piece::{Color, Pawn, PieceType},
     rays::{BISHOP_ATTACKS, RAY_ATTACKS, ROOK_ATTACKS},
@@ -218,6 +218,93 @@ impl Board {
     #[inline]
     pub fn free(&self) -> Bitboard {
         !self.all_pieces()
+    }
+
+    #[inline]
+    pub fn legal_moves_set(&self) -> MoveListSet {
+        let (pinned_bb, checkers) = self.find_pinned();
+        let (own_pieces, own_combined) = match self.side_to_move {
+            Color::White => (self.white_pieces, self.white),
+            Color::Black => (self.black_pieces, self.black),
+        };
+        let mut moves = MoveListSet::new();
+
+        let ksq = own_pieces[PieceType::King as usize].lsb_square();
+
+        let check_mask = if checkers.0.count_ones() == 1 {
+            between(checkers.lsb_square(), ksq) ^ checkers
+        } else {
+            Bitboard::universe()
+        };
+        if checkers.0.count_ones() > 1 {
+            let mut bb = PieceType::King.pseudo_legal_moves(
+                ksq,
+                self.side_to_move,
+                self.all_pieces(),
+                own_combined,
+            );
+
+            for sq in bb {
+                if self.attacks_to(sq, self.side_to_move.opposite(), self.all_pieces()) == 0 {
+                    bb ^= Bitboard::from_square(sq);
+                }
+            }
+
+            moves.push(MoveSet::new_normal(ksq, bb));
+            return moves;
+        }
+        for piece in PieceType::ALL {
+            for sq in own_pieces[piece as usize] {
+                let mut bb = piece.pseudo_legal_moves(
+                    sq,
+                    self.side_to_move,
+                    self.all_pieces(),
+                    own_combined,
+                );
+                if bb == 0 {
+                    continue;
+                }
+                if piece == PieceType::King {
+                    for sq in bb {
+                        if self.attacks_to(sq, self.side_to_move.opposite(), self.all_pieces()) == 0
+                        {
+                            bb ^= Bitboard::from_square(sq);
+                        }
+                    }
+                    // if bb != 0 {
+                    //     moves.push(MoveSet::new_normal(sq, bb));
+                    // }
+                    continue;
+                }
+                if checkers.0.count_ones() == 1 && piece != PieceType::King {
+                    bb &= check_mask;
+                }
+                let pinned = pinned_bb & Bitboard::from_square(sq) != 0;
+                if pinned {
+                    let king_square =
+                        self.pieces(self.side_to_move)[PieceType::King as usize].lsb_square();
+                    let pin = self.get_ray(king_square, sq);
+                    bb &= pin;
+                }
+                if bb != 0 {
+                    let promotion_mask = match self.side_to_move {
+                        Color::White => MASK_RANK[7],
+                        Color::Black => MASK_RANK[0],
+                    };
+                    if piece == PieceType::Pawn && bb & promotion_mask != 0 {
+                        moves.push(MoveSet::new_promotion(sq, bb, crate::File::A));
+                    } else {
+                        moves.push(MoveSet::new_normal(sq, bb));
+                    }
+                }
+            }
+        }
+
+        // if checkers.0.count_ones() == 0 {
+        //     self.castling_rules(&mut moves);
+        // }
+        // self.available_en_passant(&mut moves, checkers, check_mask, pinned_bb);
+        moves
     }
 
     #[inline]
@@ -687,10 +774,14 @@ impl Board {
         pinned_bb: Bitboard,
     ) {
         if let Some(target_square) = self.en_passant_square {
-            if checkers.0.count_ones() == 1
-                && Bitboard::from_square(target_square) & check_mask == 0
-            {
-                return;
+            if checkers.0.count_ones() == 1 {
+                let attacker_pawn = match self.side_to_move {
+                    Color::White => Bitboard::from_square(target_square) >> 8,
+                    Color::Black => Bitboard::from_square(target_square) << 8,
+                };
+                if attacker_pawn & check_mask == 0 {
+                    return;
+                }
             }
             let color = match target_square.rank() {
                 Rank::Rank3 => Color::White,
@@ -1104,81 +1195,6 @@ impl Board {
     }
 }
 
-#[inline]
-pub fn perft(board: &mut Board, depth: usize) -> usize {
-    let moves = board.legal_moves();
-
-    let mut final_depth = 0;
-
-    if depth == 1 {
-        moves.len()
-    } else {
-        for m in moves.iter() {
-            let mut board = board.make_move_new(m);
-            final_depth += perft(&mut board, depth - 1);
-        }
-
-        final_depth
-    }
-}
-
-#[inline]
-pub fn perft_async(board: &Board, depth: usize, executor: &ThreadPool) -> usize {
-    let moves = board.legal_moves();
-
-    let final_depth = Arc::new(AtomicU32::new(0));
-    let mut results = VecDeque::new();
-    let barrier = Arc::new(AtomicU32::new(moves.len() as u32));
-
-    if depth == 1 {
-        moves.len()
-    } else {
-        for m in moves.iter() {
-            let m = *m;
-            let final_depth = final_depth.clone();
-            let mut board = board.clone();
-            let barrier = barrier.clone();
-            results.push_back(async move {
-                let result = async move {
-                    let mut board = board.make_move_new(&m);
-                    let nodes = perft(&mut board, depth - 1);
-                    final_depth.fetch_add(nodes as u32, Ordering::Release);
-                    barrier.fetch_sub(1, Ordering::Release);
-                };
-
-                executor.spawn_ok(result);
-            });
-        }
-
-        for res in results {
-            futures::executor::block_on(res);
-        }
-
-        while barrier.load(Ordering::Acquire) != 0 {
-            std::hint::spin_loop();
-        }
-
-        final_depth.load(Ordering::Acquire) as usize
-    }
-}
-
-#[inline]
-pub fn perft_detailed(board: &mut Board, depth: usize) -> (BTreeMap<Move, usize>, usize) {
-    let moves = board.legal_moves();
-
-    let mut nodes = BTreeMap::new();
-    let mut final_nodes = 0;
-
-    for m in moves.iter() {
-        let mut board = board.make_move_new(m);
-        let moves = perft(&mut board, depth - 1);
-        final_nodes += moves;
-        nodes.insert(m.to_owned(), moves);
-    }
-
-    (nodes, final_nodes)
-}
-
 impl Default for Board {
     fn default() -> Self {
         let white_pieces = [
@@ -1404,6 +1420,7 @@ impl Iterator for IntoIter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::perft::perft;
     use std::str::FromStr;
 
     #[test]

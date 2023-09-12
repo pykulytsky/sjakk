@@ -8,6 +8,7 @@ pub mod hashing;
 pub mod magic;
 pub mod moves;
 pub mod parsers;
+pub mod perft;
 pub mod piece;
 pub mod rays;
 pub mod square;

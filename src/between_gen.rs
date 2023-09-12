@@ -119,6 +119,7 @@ pub fn gen_between() {
     }
 }
 
+#[allow(clippy::needless_range_loop)]
 pub fn write_between(f: &mut File) {
     gen_between();
     writeln!(f, "const BETWEEN: [[BitBoard; 64]; 64] = [[").unwrap();

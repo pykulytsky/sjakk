@@ -1,6 +1,6 @@
 use std::{fmt::Display, ops::Index};
 
-use crate::{piece::PieceType, Square};
+use crate::{constants::MASK_RANK, piece::PieceType, Bitboard, File, Rank, Square};
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq)]
 pub enum CastlingSide {
@@ -162,6 +162,155 @@ impl MoveList {
 
 impl Index<usize> for MoveList {
     type Output = Move;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.inner[..self.len][index]
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct MoveSet {
+    from: Square,
+    dest: Bitboard,
+    promotion: Option<File>,
+    current_promotion: usize,
+    is_castle: bool,
+    is_ep: bool,
+}
+
+impl MoveSet {
+    pub const fn new_normal(from: Square, dest: Bitboard) -> Self {
+        Self {
+            from,
+            dest,
+            promotion: None,
+            is_castle: false,
+            current_promotion: 0,
+            is_ep: false,
+        }
+    }
+
+    pub fn new_promotion(from: Square, dest: Bitboard, promotion: File) -> Self {
+        Self {
+            from,
+            dest,
+            promotion: Some(promotion),
+            current_promotion: 4,
+            is_castle: false,
+            is_ep: false,
+        }
+    }
+    pub fn new_castle(from: Square, dest: Bitboard) -> Self {
+        Self {
+            from,
+            dest,
+            promotion: None,
+            is_castle: true,
+            current_promotion: 0,
+            is_ep: false,
+        }
+    }
+
+    pub fn new_ep(from: Square, dest: Bitboard) -> Self {
+        Self {
+            from,
+            dest,
+            promotion: None,
+            is_castle: false,
+            current_promotion: 0,
+            is_ep: true,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        if self.promotion.is_some() {
+            self.dest.popcnt() as usize + 3
+        } else {
+            self.dest.popcnt() as usize
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() > 0
+    }
+}
+
+impl Iterator for MoveSet {
+    type Item = Move;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(promotion) = self.promotion {
+            let dest = if self.dest & MASK_RANK[0] != 0 {
+                Rank::Rank1
+            } else {
+                Rank::Rank8
+            };
+            let piece = match self.current_promotion {
+                4 => Some(PieceType::Queen),
+                3 => Some(PieceType::Rook),
+                2 => Some(PieceType::Bishop),
+                1 => Some(PieceType::Knight),
+                _ => None,
+            };
+            if let Some(piece) = piece {
+                self.current_promotion -= 1;
+                return Some(Move::new_promotion(
+                    self.from,
+                    Square::from_file_and_rank(promotion, dest),
+                    piece,
+                ));
+            }
+        }
+        let dest = self.dest.next()?;
+        if self.is_ep {
+            Some(Move::new_en_passant(self.from, dest))
+        } else if self.is_castle {
+            Some(Move::new_castle(self.from, dest))
+        } else {
+            Some(Move::new(self.from, dest))
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MoveListSet {
+    pub inner: [MoveSet; 20],
+    len: usize,
+}
+
+impl MoveListSet {
+    pub const fn new() -> Self {
+        Self {
+            inner: [MoveSet::new_normal(Square(0), Bitboard(0)); 20],
+            len: 0,
+        }
+    }
+    pub fn push(&mut self, m: MoveSet) {
+        self.inner[self.len] = m;
+        self.len += 1;
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &MoveSet> {
+        self.inner[..self.len].iter()
+    }
+
+    pub fn as_slice(&self) -> &[MoveSet] {
+        &self.inner[..self.len]
+    }
+
+    pub fn as_slice_mut(&mut self) -> &mut [MoveSet] {
+        &mut self.inner[..self.len]
+    }
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+impl Index<usize> for MoveListSet {
+    type Output = MoveSet;
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.inner[..self.len][index]
