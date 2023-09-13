@@ -18,12 +18,12 @@ use crate::{
         get_rook_moves, get_rook_rays,
     },
     hashing,
-    moves::{CastlingSide, Move, MoveList, MoveListSet, MoveSet},
+    moves::{CastlingSide, Move, MoveList},
     parsers::fen::{self, FENParseError, FEN},
-    piece::{Color, Pawn, PieceType},
+    piece::{Bishop, Color, King, Knight, Pawn, PieceType, Queen, Rook},
     rays::{BISHOP_ATTACKS, RAY_ATTACKS, ROOK_ATTACKS},
     utils::between,
-    Bitboard, Rank, Square,
+    Bitboard, Piece, Rank, Square,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
@@ -184,7 +184,8 @@ impl Board {
         self.white | self.black
     }
 
-    fn pieces(&self, color: Color) -> [Bitboard; 6] {
+    #[inline]
+    pub fn pieces(&self, color: Color) -> [Bitboard; 6] {
         match color {
             Color::White => self.white_pieces,
             Color::Black => self.black_pieces,
@@ -221,93 +222,6 @@ impl Board {
     }
 
     #[inline]
-    pub fn legal_moves_set(&self) -> MoveListSet {
-        let (pinned_bb, checkers) = self.find_pinned();
-        let (own_pieces, own_combined) = match self.side_to_move {
-            Color::White => (self.white_pieces, self.white),
-            Color::Black => (self.black_pieces, self.black),
-        };
-        let mut moves = MoveListSet::new();
-
-        let ksq = own_pieces[PieceType::King as usize].lsb_square();
-
-        let check_mask = if checkers.0.count_ones() == 1 {
-            between(checkers.lsb_square(), ksq) ^ checkers
-        } else {
-            Bitboard::universe()
-        };
-        if checkers.0.count_ones() > 1 {
-            let mut bb = PieceType::King.pseudo_legal_moves(
-                ksq,
-                self.side_to_move,
-                self.all_pieces(),
-                own_combined,
-            );
-
-            for sq in bb {
-                if self.attacks_to(sq, self.side_to_move.opposite(), self.all_pieces()) == 0 {
-                    bb ^= Bitboard::from_square(sq);
-                }
-            }
-
-            moves.push(MoveSet::new_normal(ksq, bb));
-            return moves;
-        }
-        for piece in PieceType::ALL {
-            for sq in own_pieces[piece as usize] {
-                let mut bb = piece.pseudo_legal_moves(
-                    sq,
-                    self.side_to_move,
-                    self.all_pieces(),
-                    own_combined,
-                );
-                if bb == 0 {
-                    continue;
-                }
-                if piece == PieceType::King {
-                    for sq in bb {
-                        if self.attacks_to(sq, self.side_to_move.opposite(), self.all_pieces()) == 0
-                        {
-                            bb ^= Bitboard::from_square(sq);
-                        }
-                    }
-                    // if bb != 0 {
-                    //     moves.push(MoveSet::new_normal(sq, bb));
-                    // }
-                    continue;
-                }
-                if checkers.0.count_ones() == 1 && piece != PieceType::King {
-                    bb &= check_mask;
-                }
-                let pinned = pinned_bb & Bitboard::from_square(sq) != 0;
-                if pinned {
-                    let king_square =
-                        self.pieces(self.side_to_move)[PieceType::King as usize].lsb_square();
-                    let pin = self.get_ray(king_square, sq);
-                    bb &= pin;
-                }
-                if bb != 0 {
-                    let promotion_mask = match self.side_to_move {
-                        Color::White => MASK_RANK[7],
-                        Color::Black => MASK_RANK[0],
-                    };
-                    if piece == PieceType::Pawn && bb & promotion_mask != 0 {
-                        moves.push(MoveSet::new_promotion(sq, bb, crate::File::A));
-                    } else {
-                        moves.push(MoveSet::new_normal(sq, bb));
-                    }
-                }
-            }
-        }
-
-        // if checkers.0.count_ones() == 0 {
-        //     self.castling_rules(&mut moves);
-        // }
-        // self.available_en_passant(&mut moves, checkers, check_mask, pinned_bb);
-        moves
-    }
-
-    #[inline]
     pub fn legal_moves(&self) -> MoveList {
         let (pinned_bb, checkers) = self.find_pinned();
         let (own_pieces, own_combined) = match self.side_to_move {
@@ -323,62 +237,84 @@ impl Board {
         } else {
             Bitboard::universe()
         };
-        if checkers.0.count_ones() > 1 {
-            let bb = PieceType::King.pseudo_legal_moves(
-                ksq,
-                self.side_to_move,
-                self.all_pieces(),
+
+        if checkers.0.count_ones() <= 1 {
+            Pawn::legal_moves(
+                self,
+                checkers,
+                pinned_bb,
+                self.pieces(self.side_to_move)[PieceType::Pawn as usize],
                 own_combined,
+                &mut moves,
+                check_mask,
             );
 
-            for sq in bb {
-                if self.attacks_to(sq, self.side_to_move.opposite(), self.all_pieces()) == 0 {
-                    moves.push(Move::new(ksq, sq));
-                }
-            }
+            Knight::legal_moves(
+                self,
+                checkers,
+                pinned_bb,
+                self.pieces(self.side_to_move)[PieceType::Knight as usize],
+                own_combined,
+                &mut moves,
+                check_mask,
+            );
 
-            return moves;
-        }
-        for piece in PieceType::ALL {
-            for sq in own_pieces[piece as usize] {
-                let mut bb = piece.pseudo_legal_moves(
-                    sq,
-                    self.side_to_move,
-                    self.all_pieces(),
-                    own_combined,
-                );
-                if bb == 0 {
-                    continue;
-                }
-                if piece == PieceType::King {
-                    for sq in bb {
-                        if self.attacks_to(sq, self.side_to_move.opposite(), self.all_pieces()) == 0
-                        {
-                            moves.push(Move::new(ksq, sq));
-                        }
-                    }
-                    continue;
-                }
-                if checkers.0.count_ones() == 1 && piece != PieceType::King {
-                    bb &= check_mask;
-                }
-                let pinned = pinned_bb & Bitboard::from_square(sq) != 0;
-                if pinned {
-                    let king_square =
-                        self.pieces(self.side_to_move)[PieceType::King as usize].lsb_square();
-                    let pin = self.get_ray(king_square, sq);
-                    bb &= pin;
-                }
-                if bb != 0 {
-                    self.fill_move_list(&mut moves, sq, bb, piece);
-                }
-            }
+            Rook::legal_moves(
+                self,
+                checkers,
+                pinned_bb,
+                self.pieces(self.side_to_move)[PieceType::Rook as usize],
+                own_combined,
+                &mut moves,
+                check_mask,
+            );
+
+            Bishop::legal_moves(
+                self,
+                checkers,
+                pinned_bb,
+                self.pieces(self.side_to_move)[PieceType::Bishop as usize],
+                own_combined,
+                &mut moves,
+                check_mask,
+            );
+
+            Queen::legal_moves(
+                self,
+                checkers,
+                pinned_bb,
+                self.pieces(self.side_to_move)[PieceType::Queen as usize],
+                own_combined,
+                &mut moves,
+                check_mask,
+            );
+
+            King::legal_moves(
+                self,
+                checkers,
+                pinned_bb,
+                self.pieces(self.side_to_move)[PieceType::King as usize],
+                own_combined,
+                &mut moves,
+                check_mask,
+            );
+        } else {
+            King::legal_moves(
+                self,
+                checkers,
+                pinned_bb,
+                self.pieces(self.side_to_move)[PieceType::King as usize],
+                own_combined,
+                &mut moves,
+                check_mask,
+            );
         }
 
         if checkers.0.count_ones() == 0 {
             self.castling_rules(&mut moves);
         }
         self.available_en_passant(&mut moves, checkers, check_mask, pinned_bb);
+
         moves
     }
 
@@ -409,29 +345,6 @@ impl Board {
                 }
             },
             _ => {}
-        }
-    }
-
-    #[inline]
-    fn fill_move_list(
-        &self,
-        move_list: &mut MoveList,
-        sq: Square,
-        moves: Bitboard,
-        piece: PieceType,
-    ) {
-        for m in moves {
-            if piece == PieceType::Pawn
-                && ((m.rank() == Rank::Rank8 && self.side_to_move == Color::White)
-                    || (m.rank() == Rank::Rank1 && self.side_to_move == Color::Black))
-            {
-                move_list.push(Move::new_promotion(sq, m, PieceType::Queen));
-                move_list.push(Move::new_promotion(sq, m, PieceType::Rook));
-                move_list.push(Move::new_promotion(sq, m, PieceType::Bishop));
-                move_list.push(Move::new_promotion(sq, m, PieceType::Knight));
-            } else {
-                move_list.push(Move::new(sq, m));
-            }
         }
     }
 
@@ -503,6 +416,7 @@ impl Board {
     /// # Safety
     /// This method does not check if provided move is a valid move, it may break representation of
     /// the game. Use it only with moves, received from [`Self::pseudo_legal_moves`]. Otherwise use [`Self::make_move`].
+    #[inline]
     pub unsafe fn make_move_unchecked(&mut self, m: &Move) {
         let piece = self.moved_piece(m);
         let captured = self.captured_piece(m);
@@ -779,7 +693,9 @@ impl Board {
                     Color::White => Bitboard::from_square(target_square) >> 8,
                     Color::Black => Bitboard::from_square(target_square) << 8,
                 };
-                if attacker_pawn & check_mask == 0 {
+                if attacker_pawn & check_mask == 0
+                    && Bitboard::from_square(target_square) & check_mask == 0
+                {
                     return;
                 }
             }
@@ -873,14 +789,7 @@ impl Board {
             PieceType::Knight.pseudo_legal_moves(king, self.side_to_move, Bitboard(0), Bitboard(0))
                 & self.pieces_combined(self.side_to_move.opposite())
                 & self.pieces(self.side_to_move.opposite())[PieceType::Knight as usize];
-        // let mut pawn_attacks = Bitboard(0);
-        // for pawn in self.pieces(self.side_to_move.opposite())[PieceType::Pawn as usize] {
-        //     if Bitboard::from_square(king) & Pawn::pawn_attacks(self.side_to_move.opposite(), pawn)
-        //         != 0
-        //     {
-        //         checkers ^= Bitboard::from_square(pawn);
-        //     }
-        // }
+
         let pawn_attacks = Pawn::pawn_attacks(self.side_to_move, king)
             & self.pieces(self.side_to_move.opposite())[PieceType::Pawn as usize];
         checkers ^= knight_moves;
@@ -890,7 +799,7 @@ impl Board {
     }
 
     #[inline]
-    fn get_ray(&self, sq1: Square, sq2: Square) -> Bitboard {
+    pub fn get_ray(&self, sq1: Square, sq2: Square) -> Bitboard {
         Bitboard(
             RAY_ATTACKS[sq1.0 as usize]
                 .into_iter()

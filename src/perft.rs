@@ -29,27 +29,6 @@ pub fn perft(board: &mut Board, depth: usize) -> usize {
 }
 
 #[inline]
-pub fn perft_set(board: &mut Board, depth: usize) -> usize {
-    let moves = board.legal_moves_set();
-
-    let mut final_depth = 0;
-
-    if depth == 1 {
-        moves.len()
-    } else {
-        for mv in moves.iter() {
-            let mv = mv.to_owned();
-            for m in mv {
-                let mut board = board.make_move_new(&m);
-                final_depth += perft_set(&mut board, depth - 1);
-            }
-        }
-
-        final_depth
-    }
-}
-
-#[inline]
 pub fn perft_async(board: &Board, depth: usize, executor: &ThreadPool) -> usize {
     let moves = board.legal_moves();
 

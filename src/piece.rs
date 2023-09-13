@@ -1,13 +1,15 @@
 use std::mem::transmute;
 
 use crate::{
+    board::Board,
     constants::CLEAR_FILE,
     gen_moves::{
         get_bishop_moves, get_king_moves, get_knight_moves, get_pawn_moves, get_rook_moves,
     },
+    moves::MoveList,
     rays::RAY_ATTACKS,
     utils::{bit_scan_forward, bit_scan_reverse, POSITIVE_RAYS},
-    Bitboard, Square,
+    Bitboard, Move, Rank, Square,
 };
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -146,6 +148,38 @@ pub trait Piece {
         occupied: Bitboard,
         own: Bitboard,
     ) -> Bitboard;
+
+    fn legal_moves(
+        board: &Board,
+        checkers: Bitboard,
+        pinned: Bitboard,
+        pieces: Bitboard,
+        own_pieces: Bitboard,
+        move_list: &mut MoveList,
+        check_mask: Bitboard,
+    ) {
+        for sq in pieces {
+            let mut bb =
+                Self::pseudo_legal_moves(sq, board.side_to_move, board.all_pieces(), own_pieces);
+            if bb == 0 {
+                continue;
+            }
+            if checkers.0.count_ones() == 1 {
+                bb &= check_mask;
+            }
+
+            let pinned = pinned & Bitboard::from_square(sq) != 0;
+            if pinned {
+                let king_square =
+                    board.pieces(board.side_to_move)[PieceType::King as usize].lsb_square();
+                let pin = board.get_ray(king_square, sq);
+                bb &= pin;
+            }
+            for target in bb {
+                move_list.push(Move::new(sq, target));
+            }
+        }
+    }
 }
 
 pub struct Pawn;
@@ -158,6 +192,47 @@ impl Piece for Pawn {
         own: Bitboard,
     ) -> Bitboard {
         get_pawn_moves(square, color, occupied) & !own
+    }
+
+    fn legal_moves(
+        board: &Board,
+        checkers: Bitboard,
+        pinned: Bitboard,
+        pieces: Bitboard,
+        own_pieces: Bitboard,
+        move_list: &mut MoveList,
+        check_mask: Bitboard,
+    ) {
+        for sq in pieces {
+            let mut bb =
+                Pawn::pseudo_legal_moves(sq, board.side_to_move, board.all_pieces(), own_pieces);
+            if bb == 0 {
+                continue;
+            }
+            if checkers.0.count_ones() == 1 {
+                bb &= check_mask;
+            }
+
+            let pinned = pinned & Bitboard::from_square(sq) != 0;
+            if pinned {
+                let king_square =
+                    board.pieces(board.side_to_move)[PieceType::King as usize].lsb_square();
+                let pin = board.get_ray(king_square, sq);
+                bb &= pin;
+            }
+            for target in bb {
+                if (target.rank() == Rank::Rank8 && board.side_to_move == Color::White)
+                    || (target.rank() == Rank::Rank1 && board.side_to_move == Color::Black)
+                {
+                    move_list.push(Move::new_promotion(sq, target, PieceType::Queen));
+                    move_list.push(Move::new_promotion(sq, target, PieceType::Rook));
+                    move_list.push(Move::new_promotion(sq, target, PieceType::Bishop));
+                    move_list.push(Move::new_promotion(sq, target, PieceType::Knight));
+                } else {
+                    move_list.push(Move::new(sq, target));
+                }
+            }
+        }
     }
 }
 
@@ -263,6 +338,24 @@ impl Piece for King {
         own: Bitboard,
     ) -> Bitboard {
         get_king_moves(square) & !own
+    }
+    fn legal_moves(
+        board: &Board,
+        _: Bitboard,
+        _: Bitboard,
+        pieces: Bitboard,
+        own_pieces: Bitboard,
+        move_list: &mut MoveList,
+        _: Bitboard,
+    ) {
+        let ksq = pieces.lsb_square();
+        let bb = Self::pseudo_legal_moves(ksq, board.side_to_move, board.all_pieces(), own_pieces);
+
+        for sq in bb {
+            if board.attacks_to(sq, board.side_to_move.opposite(), board.all_pieces()) == 0 {
+                move_list.push(Move::new(ksq, sq));
+            }
+        }
     }
 }
 
