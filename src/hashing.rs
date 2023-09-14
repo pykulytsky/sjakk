@@ -41,7 +41,7 @@ impl XorShiftState {
     }
 }
 
-const fn generate_zobrist_hash() -> ([[u64; 64]; 12], [u64; 8], [u64; 16], u64) {
+const fn generate_zobrist_hash() -> ([[u64; 64]; 12], [u64; 8], [[u64; 4]; 2], u64) {
     let mut state = XorShiftState::new();
     let mut piece_keys = [[0; 64]; 12];
     let mut i = 0;
@@ -55,12 +55,16 @@ const fn generate_zobrist_hash() -> ([[u64; 64]; 12], [u64; 8], [u64; 16], u64) 
         }
         i += 1;
     }
-    let mut castle_keys = [0; 16];
+    let mut castle_keys = [[0; 4]; 2];
     let mut i = 0;
-    while i < 16 {
-        let key;
-        (key, state) = state.next_self();
-        castle_keys[i] = key;
+    while i < 2 {
+        let mut rule = 0;
+        while rule < 4 {
+            let key;
+            (key, state) = state.next_self();
+            castle_keys[i][rule] = key;
+            rule += 1;
+        }
         i += 1;
     }
     let mut ep_keys = [0; 8];
@@ -79,5 +83,5 @@ const fn generate_zobrist_hash() -> ([[u64; 64]; 12], [u64; 8], [u64; 16], u64) 
 
 pub const PIECE_KEYS: [[u64; 64]; 12] = generate_zobrist_hash().0;
 pub const EP_KEYS: [u64; 8] = generate_zobrist_hash().1;
-pub const CASTLE_KEYS: [u64; 16] = generate_zobrist_hash().2;
+pub const CASTLE_KEYS: [[u64; 4]; 2] = generate_zobrist_hash().2;
 pub const SIDE_KEY: u64 = generate_zobrist_hash().3;
