@@ -3,7 +3,7 @@
 
 use std::fmt::Display;
 
-use crate::{constants::Direction, utils::bit_scan_forward, File, Rank, Square};
+use crate::{constants::Direction, File, Rank, Square};
 
 /// Represents particular position on a chess board.
 /// It is used in variety of places, but the main purpose of bitboards is to represent position
@@ -337,7 +337,7 @@ impl Bitboard {
     /// Returns [`Square`], which is represented by least significant bit.
     /// Can be used to iterate over all pieces, which exists on particular [`Bitboard`]
     pub fn lsb_square(&self) -> Square {
-        Square(bit_scan_forward(self.0))
+        Square(self.0.trailing_zeros() as u8)
     }
 
     /// Calculate population count of current bitobard.

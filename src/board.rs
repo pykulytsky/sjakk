@@ -53,6 +53,7 @@ pub struct Board {
     pub status: Status,
     pub castling_rights: [CastlingRights; 2],
     pub en_passant_square: Option<Square>,
+    pub ksq: Square,
     pub hash: u64,
 }
 
@@ -156,13 +157,13 @@ impl Board {
     #[inline]
     pub fn legal_moves(&self) -> MoveList {
         let (pinned_bb, checkers) = self.find_pinned();
-        let (own_pieces, own_combined) = match self.side_to_move {
-            Color::White => (self.white_pieces, self.white),
-            Color::Black => (self.black_pieces, self.black),
+        let own_combined = match self.side_to_move {
+            Color::White => self.white,
+            Color::Black => self.black,
         };
         let mut moves = MoveList::new();
 
-        let ksq = own_pieces[PieceType::King as usize].lsb_square();
+        let ksq = self.ksq;
 
         let check_mask = if checkers.0.count_ones() == 1 {
             between(checkers.lsb_square(), ksq) ^ checkers
@@ -225,7 +226,7 @@ impl Board {
                 self,
                 checkers,
                 pinned_bb,
-                self.pieces(self.side_to_move)[PieceType::King as usize],
+                Bitboard::from_square(ksq),
                 own_combined,
                 &mut moves,
                 check_mask,
@@ -235,7 +236,7 @@ impl Board {
                 self,
                 checkers,
                 pinned_bb,
-                self.pieces(self.side_to_move)[PieceType::King as usize],
+                Bitboard::from_square(ksq),
                 own_combined,
                 &mut moves,
                 check_mask,
@@ -400,6 +401,7 @@ impl Board {
         }
         self.update_position(m);
         self.side_to_move = self.side_to_move.opposite();
+        self.ksq = self.pieces(self.side_to_move)[PieceType::King as usize].lsb_square();
         self.hash ^= hashing::SIDE_KEY;
         self.move_list.push(*m);
     }
@@ -597,8 +599,7 @@ impl Board {
             let targets = targets & self.pieces(self.side_to_move)[PieceType::Pawn as usize];
             for target in targets {
                 let pinned = pinned_bb & Bitboard::from_square(target) != 0;
-                let king_square =
-                    self.pieces(self.side_to_move)[PieceType::King as usize].lsb_square();
+                let king_square = self.ksq;
                 if pinned {
                     let pin = self.get_ray(king_square, target);
                     if pin & Bitboard::from_square(target_square) == 0 {
@@ -642,17 +643,17 @@ impl Board {
     /// Returns [`Bitboard`] with pinned pieces and [`Bitboard`] with checkers.
     #[inline]
     pub fn find_pinned(&self) -> (Bitboard, Bitboard) {
-        let king = self.pieces(self.side_to_move)[PieceType::King as usize].lsb_square();
-        //white -> opposite
+        let king = self.ksq;
+        let enemy_pieces = self.pieces(self.side_to_move.opposite());
+        let enemy_combined = self.pieces_combined(self.side_to_move.opposite());
         let bishop_rays = Bitboard(
             BISHOP_ATTACKS[king.0 as usize]
                 .into_iter()
                 .reduce(|acc, next| acc | next)
                 .unwrap()
                 .to_owned(),
-        ) & (self.pieces(self.side_to_move.opposite())
-            [PieceType::Bishop as usize]
-            | self.pieces(self.side_to_move.opposite())[PieceType::Queen as usize]);
+        ) & (enemy_pieces[PieceType::Bishop as usize]
+            | enemy_pieces[PieceType::Queen as usize]);
 
         let rook_rays = Bitboard(
             ROOK_ATTACKS[king.0 as usize]
@@ -660,10 +661,10 @@ impl Board {
                 .reduce(|acc, next| acc | next)
                 .unwrap()
                 .to_owned(),
-        ) & (self.pieces(self.side_to_move.opposite())[PieceType::Rook as usize]
-            | self.pieces(self.side_to_move.opposite())[PieceType::Queen as usize]);
-        let attackers =
-            self.pieces_combined(self.side_to_move.opposite()) & (bishop_rays | rook_rays);
+        ) & (enemy_pieces[PieceType::Rook as usize]
+            | enemy_pieces[PieceType::Queen as usize]);
+
+        let attackers = enemy_combined & (bishop_rays | rook_rays);
         let mut pinned = Bitboard(0);
         let mut checkers = Bitboard(0);
         for sq in attackers {
@@ -676,11 +677,11 @@ impl Board {
         }
         let knight_moves =
             PieceType::Knight.pseudo_legal_moves(king, self.side_to_move, Bitboard(0), Bitboard(0))
-                & self.pieces_combined(self.side_to_move.opposite())
-                & self.pieces(self.side_to_move.opposite())[PieceType::Knight as usize];
+                & enemy_combined
+                & enemy_pieces[PieceType::Knight as usize];
 
-        let pawn_attacks = Pawn::pawn_attacks(self.side_to_move, king)
-            & self.pieces(self.side_to_move.opposite())[PieceType::Pawn as usize];
+        let pawn_attacks =
+            Pawn::pawn_attacks(self.side_to_move, king) & enemy_pieces[PieceType::Pawn as usize];
         checkers ^= knight_moves;
         checkers ^= pawn_attacks;
 
@@ -1027,6 +1028,7 @@ impl Default for Board {
             status: Status::Ongoing,
             castling_rights: [CastlingRights::Both, CastlingRights::Both],
             en_passant_square: None,
+            ksq: Square::E1,
             hash: 0,
         };
         board.init_hash();
@@ -1071,6 +1073,7 @@ impl From<FEN> for Board {
             },
             castling_rights: fen.castling_rules,
             en_passant_square: fen.en_passant_target,
+            ksq: fen.pieces[fen.active_color as usize][PieceType::King as usize].lsb_square(),
             hash: 0,
         };
         board.init_hash();

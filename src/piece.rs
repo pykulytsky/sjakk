@@ -170,8 +170,7 @@ pub trait Piece {
 
             let pinned = pinned & Bitboard::from_square(sq) != 0;
             if pinned {
-                let king_square =
-                    board.pieces(board.side_to_move)[PieceType::King as usize].lsb_square();
+                let king_square = board.ksq;
                 let pin = board.get_ray(king_square, sq);
                 bb &= pin;
             }
@@ -215,8 +214,7 @@ impl Piece for Pawn {
 
             let pinned = pinned & Bitboard::from_square(sq) != 0;
             if pinned {
-                let king_square =
-                    board.pieces(board.side_to_move)[PieceType::King as usize].lsb_square();
+                let king_square = board.ksq;
                 let pin = board.get_ray(king_square, sq);
                 bb &= pin;
             }
