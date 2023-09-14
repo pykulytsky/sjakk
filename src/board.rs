@@ -1069,7 +1069,6 @@ impl From<FEN> for Board {
             } else {
                 Status::Draw(DrawReason::Halfmoves)
             },
-            // TODO: respect here castling rights from FEN
             castling_rights: fen.castling_rules,
             en_passant_square: fen.en_passant_target,
             hash: 0,
