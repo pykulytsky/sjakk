@@ -41,7 +41,9 @@ impl XorShiftState {
     }
 }
 
-const fn generate_zobrist_hash() -> ([[u64; 64]; 12], [u64; 8], [[u64; 4]; 2], u64) {
+type ZobristHashes = ([[u64; 64]; 12], [u64; 8], [[u64; 4]; 2], u64);
+
+const fn generate_zobrist_hash() -> ZobristHashes {
     let mut state = XorShiftState::new();
     let mut piece_keys = [[0; 64]; 12];
     let mut i = 0;

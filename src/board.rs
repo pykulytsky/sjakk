@@ -12,6 +12,7 @@ use smallvec::{smallvec, SmallVec};
 use thiserror::Error;
 
 use crate::{
+    castling_rights::CatslingRights,
     constants::{self, MASK_RANK},
     gen_moves::{
         get_bishop_moves, get_bishop_rays, get_king_moves, get_knight_moves, get_pawn_attacks,
@@ -23,7 +24,7 @@ use crate::{
     piece::{Bishop, Color, King, Knight, Pawn, PieceType, Queen, Rook},
     rays::{BISHOP_ATTACKS, RAY_ATTACKS, ROOK_ATTACKS},
     utils::between,
-    Bitboard, Piece, Rank, Square,
+    Bitboard, File, Piece, Rank, Square,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
@@ -40,99 +41,6 @@ pub enum DrawReason {
     Repetition,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Default)]
-pub struct CastlingRights {
-    white_king_moved: bool,
-    black_king_moved: bool,
-
-    white_a_rook_moved: bool,
-    white_h_rook_moved: bool,
-
-    black_a_rook_moved: bool,
-    black_h_rook_moved: bool,
-}
-
-impl From<(Option<CastlingSide>, Option<CastlingSide>)> for CastlingRights {
-    fn from((white, black): (Option<CastlingSide>, Option<CastlingSide>)) -> Self {
-        let mut rules = CastlingRights::default();
-        match (white, black) {
-            (None, None) => {
-                rules.white_king_moved = true;
-                rules.black_king_moved = true;
-            }
-            (None, Some(side)) => {
-                rules.white_king_moved = true;
-                match side {
-                    CastlingSide::KingSide => {
-                        rules.black_a_rook_moved = true;
-                    }
-                    CastlingSide::QueenSide => {
-                        rules.black_h_rook_moved = true;
-                    }
-                    CastlingSide::Both => {}
-                }
-            }
-            (Some(side), None) => {
-                rules.black_king_moved = true;
-                match side {
-                    CastlingSide::KingSide => {
-                        rules.white_a_rook_moved = true;
-                    }
-                    CastlingSide::QueenSide => {
-                        rules.white_h_rook_moved = true;
-                    }
-                    CastlingSide::Both => {}
-                }
-            }
-            (Some(side), Some(side_black)) => {
-                match side {
-                    CastlingSide::KingSide => {
-                        rules.white_a_rook_moved = true;
-                    }
-                    CastlingSide::QueenSide => {
-                        rules.white_h_rook_moved = true;
-                    }
-                    CastlingSide::Both => {}
-                }
-
-                match side_black {
-                    CastlingSide::KingSide => {
-                        rules.black_a_rook_moved = true;
-                    }
-                    CastlingSide::QueenSide => {
-                        rules.black_h_rook_moved = true;
-                    }
-                    CastlingSide::Both => {}
-                }
-            }
-        }
-
-        rules
-    }
-}
-
-impl CastlingRights {
-    fn king_moved(&self, side: Color) -> bool {
-        match side {
-            Color::White => self.white_king_moved,
-            Color::Black => self.black_king_moved,
-        }
-    }
-
-    fn a_rook_moved(&self, side: Color) -> bool {
-        match side {
-            Color::White => self.white_a_rook_moved,
-            Color::Black => self.black_a_rook_moved,
-        }
-    }
-    fn h_rook_moved(&self, side: Color) -> bool {
-        match side {
-            Color::White => self.white_h_rook_moved,
-            Color::Black => self.black_h_rook_moved,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq)]
 pub struct Board {
     pub white_pieces: [Bitboard; 6],
@@ -143,7 +51,7 @@ pub struct Board {
     pub halfmoves: u16,
     pub side_to_move: Color,
     pub status: Status,
-    pub castling_rights: CastlingRights,
+    pub castling_rights: [CatslingRights; 2],
     pub en_passant_square: Option<Square>,
     hash: u64,
 }
@@ -163,7 +71,7 @@ impl Board {
             halfmoves: 0,
             side_to_move: Color::White,
             status: Status::Ongoing,
-            castling_rights: CastlingRights::default(),
+            castling_rights: [CatslingRights::Both, CatslingRights::Both],
             en_passant_square: None,
             hash: 0,
         }
@@ -448,49 +356,27 @@ impl Board {
             }
         }
         // update castling rights
-        match piece {
-            PieceType::Rook => match m.from() {
-                Square::A1 => {
-                    self.castling_rights.white_a_rook_moved = true;
-                }
-                Square::A8 => {
-                    self.castling_rights.black_a_rook_moved = true;
-                }
-                Square::H1 => {
-                    self.castling_rights.white_h_rook_moved = true;
-                }
-                Square::H8 => {
-                    self.castling_rights.black_h_rook_moved = true;
+        if self.castling_rights[self.side_to_move as usize] != CatslingRights::NoCastling {
+            match piece {
+                PieceType::Rook => match m.from().file() {
+                    File::A => self.castling_rights[self.side_to_move as usize].remove_queenside(),
+                    File::H => self.castling_rights[self.side_to_move as usize].remove_kingside(),
+                    _ => {}
+                },
+                PieceType::King => {
+                    self.castling_rights[self.side_to_move as usize] = CatslingRights::NoCastling
                 }
                 _ => {}
-            },
-            PieceType::King => match m.from() {
-                Square::E1 => {
-                    self.castling_rights.white_king_moved = true;
-                }
-                Square::E8 => {
-                    self.castling_rights.black_king_moved = true;
-                }
-                _ => {}
-            },
-            _ => {}
-        }
+            }
 
-        if let Some(PieceType::Rook) = captured {
-            match m.to() {
-                Square::A1 => {
-                    self.castling_rights.white_a_rook_moved = true;
+            if let Some(PieceType::Rook) = captured {
+                match m.to().file() {
+                    File::A => self.castling_rights[self.side_to_move.opposite() as usize]
+                        .remove_queenside(),
+                    File::H => self.castling_rights[self.side_to_move.opposite() as usize]
+                        .remove_kingside(),
+                    _ => {}
                 }
-                Square::A8 => {
-                    self.castling_rights.black_a_rook_moved = true;
-                }
-                Square::H1 => {
-                    self.castling_rights.white_h_rook_moved = true;
-                }
-                Square::H8 => {
-                    self.castling_rights.black_h_rook_moved = true;
-                }
-                _ => {}
             }
         }
         if piece == PieceType::Pawn
@@ -816,12 +702,15 @@ impl Board {
 
     #[inline]
     fn available_castling(&self) -> Option<CastlingSide> {
-        let king_on_original_square = !self.castling_rights.king_moved(self.side_to_move);
+        let castling_rights = self.castling_rights[self.side_to_move as usize];
+        let king_on_original_square = castling_rights != CatslingRights::NoCastling;
         if !king_on_original_square {
             return None;
         }
-        let a_rook_on_original_square = !self.castling_rights.a_rook_moved(self.side_to_move);
-        let h_rook_on_original_square = !self.castling_rights.h_rook_moved(self.side_to_move);
+        let a_rook_on_original_square =
+            castling_rights == CatslingRights::Both || castling_rights == CatslingRights::QueenSide;
+        let h_rook_on_original_square =
+            castling_rights == CatslingRights::Both || castling_rights == CatslingRights::KingSide;
 
         if !a_rook_on_original_square && !h_rook_on_original_square {
             return None;
@@ -1133,7 +1022,7 @@ impl Default for Board {
             halfmoves: 0,
             side_to_move: Color::White,
             status: Status::Ongoing,
-            castling_rights: CastlingRights::default(),
+            castling_rights: [CatslingRights::Both, CatslingRights::Both],
             en_passant_square: None,
             hash: 0,
         }
@@ -1176,7 +1065,7 @@ impl From<FEN> for Board {
                 Status::Draw(DrawReason::Halfmoves)
             },
             // TODO: respect here castling rights from FEN
-            castling_rights: CastlingRights::from(fen.castling_rules),
+            castling_rights: fen.castling_rules,
             en_passant_square: fen.en_passant_target,
             hash: 0,
         }

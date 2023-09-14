@@ -7,6 +7,7 @@ use std::{
 
 use crate::{
     board::Board,
+    castling_rights::CatslingRights,
     moves::CastlingSide,
     piece::{Color, PieceType},
     Bitboard, Square,
@@ -19,7 +20,7 @@ pub struct FEN {
     pub pieces: [[Bitboard; 6]; 2],
     pub active_color: Color,
     pub en_passant_target: Option<Square>,
-    pub castling_rules: (Option<CastlingSide>, Option<CastlingSide>),
+    pub castling_rules: [CatslingRights; 2],
     pub halfmove_clock: u16,
     pub fullmove_number: u16,
 }
@@ -54,6 +55,37 @@ impl FromStr for FEN {
         let active_color = parse_active_color(parts.next().unwrap())?;
         // Skip castling rights and posible en passant for now.
         let castling_rules = parse_castling(parts.next().unwrap());
+        let rights = match castling_rules {
+            (None, None) => [CatslingRights::NoCastling, CatslingRights::NoCastling],
+            (None, Some(side)) => [
+                CatslingRights::NoCastling,
+                match side {
+                    CastlingSide::KingSide => CatslingRights::KingSide,
+                    CastlingSide::QueenSide => CatslingRights::QueenSide,
+                    CastlingSide::Both => CatslingRights::Both,
+                },
+            ],
+            (Some(side), None) => [
+                match side {
+                    CastlingSide::KingSide => CatslingRights::KingSide,
+                    CastlingSide::QueenSide => CatslingRights::QueenSide,
+                    CastlingSide::Both => CatslingRights::Both,
+                },
+                CatslingRights::NoCastling,
+            ],
+            (Some(white_side), Some(black_side)) => [
+                match white_side {
+                    CastlingSide::KingSide => CatslingRights::KingSide,
+                    CastlingSide::QueenSide => CatslingRights::QueenSide,
+                    CastlingSide::Both => CatslingRights::Both,
+                },
+                match black_side {
+                    CastlingSide::KingSide => CatslingRights::KingSide,
+                    CastlingSide::QueenSide => CatslingRights::QueenSide,
+                    CastlingSide::Both => CatslingRights::Both,
+                },
+            ],
+        };
         let en_passant_target = parse_en_passant_target(parts.next().unwrap());
         let (halfmove_clock, fullmove_number) = parse_moves(parts.take(2))?;
 
@@ -61,7 +93,7 @@ impl FromStr for FEN {
             pieces,
             active_color,
             en_passant_target,
-            castling_rules,
+            castling_rules: rights,
             halfmove_clock,
             fullmove_number,
         })
@@ -223,7 +255,7 @@ impl From<Board> for FEN {
         Self {
             pieces: [board.white_pieces, board.black_pieces],
             active_color: board.side_to_move,
-            castling_rules: (None, None),
+            castling_rules: board.castling_rights,
             en_passant_target: None,
             halfmove_clock: board.halfmoves,
             fullmove_number: board.move_list.len() as u16 / 2,
