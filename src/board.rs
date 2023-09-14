@@ -12,7 +12,7 @@ use smallvec::{smallvec, SmallVec};
 use thiserror::Error;
 
 use crate::{
-    castling_rights::CatslingRights,
+    castling_rights::CastlingRights,
     constants::{self, MASK_RANK},
     gen_moves::{
         get_bishop_moves, get_bishop_rays, get_king_moves, get_knight_moves, get_pawn_attacks,
@@ -24,7 +24,7 @@ use crate::{
     piece::{Bishop, Color, King, Knight, Pawn, PieceType, Queen, Rook},
     rays::{BISHOP_ATTACKS, RAY_ATTACKS, ROOK_ATTACKS},
     utils::between,
-    Bitboard, File, Piece, Rank, Square,
+    Bitboard, Piece, Rank, Square,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
@@ -51,9 +51,9 @@ pub struct Board {
     pub halfmoves: u16,
     pub side_to_move: Color,
     pub status: Status,
-    pub castling_rights: [CatslingRights; 2],
+    pub castling_rights: [CastlingRights; 2],
     pub en_passant_square: Option<Square>,
-    hash: u64,
+    pub hash: u64,
 }
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -61,20 +61,8 @@ pub struct Board {
 pub struct IllegalMove;
 
 impl Board {
-    pub fn new(white_pieces: [Bitboard; 6], black_pieces: [Bitboard; 6]) -> Self {
-        Self {
-            white_pieces,
-            black_pieces,
-            white: Self::combine(white_pieces),
-            black: Self::combine(black_pieces),
-            move_list: smallvec![],
-            halfmoves: 0,
-            side_to_move: Color::White,
-            status: Status::Ongoing,
-            castling_rights: [CatslingRights::Both, CatslingRights::Both],
-            en_passant_square: None,
-            hash: 0,
-        }
+    pub fn new() -> Self {
+        Board::default()
     }
 
     pub fn from_fen(input: &str) -> Result<Self, FENParseError> {
@@ -127,6 +115,42 @@ impl Board {
     #[inline]
     pub fn free(&self) -> Bitboard {
         !self.all_pieces()
+    }
+
+    pub fn init_hash(&mut self) {
+        self.hash_piece_set(PieceType::Pawn, Color::White);
+        self.hash_piece_set(PieceType::Rook, Color::White);
+        self.hash_piece_set(PieceType::Bishop, Color::White);
+        self.hash_piece_set(PieceType::Knight, Color::White);
+        self.hash_piece_set(PieceType::Queen, Color::White);
+        self.hash_piece_set(PieceType::King, Color::White);
+        self.hash_piece_set(PieceType::Pawn, Color::Black);
+        self.hash_piece_set(PieceType::Rook, Color::Black);
+        self.hash_piece_set(PieceType::Bishop, Color::Black);
+        self.hash_piece_set(PieceType::Knight, Color::Black);
+        self.hash_piece_set(PieceType::Queen, Color::Black);
+        self.hash_piece_set(PieceType::King, Color::Black);
+
+        if let Some(target) = self.en_passant_square {
+            self.hash ^= hashing::EP_KEYS[target.file() as usize];
+        }
+        self.hash ^= hashing::CASTLE_KEYS[0][self.castling_rights[0] as usize];
+        self.hash ^= hashing::CASTLE_KEYS[1][self.castling_rights[1] as usize];
+
+        if self.side_to_move == Color::Black {
+            self.hash ^= hashing::SIDE_KEY;
+        }
+    }
+
+    fn hash_piece_set(&mut self, piece: PieceType, color: Color) {
+        let piece_idx = if self.side_to_move == Color::White {
+            piece as usize
+        } else {
+            piece as usize * 2
+        };
+        for sq in self.pieces(color)[piece as usize] {
+            self.hash ^= hashing::PIECE_KEYS[piece_idx][sq.0 as usize];
+        }
     }
 
     #[inline]
@@ -356,29 +380,8 @@ impl Board {
             }
         }
         // update castling rights
-        if self.castling_rights[self.side_to_move as usize] != CatslingRights::NoCastling {
-            match piece {
-                PieceType::Rook => match m.from().file() {
-                    File::A => self.castling_rights[self.side_to_move as usize].remove_queenside(),
-                    File::H => self.castling_rights[self.side_to_move as usize].remove_kingside(),
-                    _ => {}
-                },
-                PieceType::King => {
-                    self.castling_rights[self.side_to_move as usize] = CatslingRights::NoCastling
-                }
-                _ => {}
-            }
+        CastlingRights::update_castling_rights(self, piece, captured, m);
 
-            if let Some(PieceType::Rook) = captured {
-                match m.to().file() {
-                    File::A => self.castling_rights[self.side_to_move.opposite() as usize]
-                        .remove_queenside(),
-                    File::H => self.castling_rights[self.side_to_move.opposite() as usize]
-                        .remove_kingside(),
-                    _ => {}
-                }
-            }
-        }
         if piece == PieceType::Pawn
             && ((m.from().rank() == Rank::Rank2 && m.to().rank() == Rank::Rank4)
                 || (m.from().rank() == Rank::Rank7 && m.to().rank() == Rank::Rank5))
@@ -703,14 +706,14 @@ impl Board {
     #[inline]
     fn available_castling(&self) -> Option<CastlingSide> {
         let castling_rights = self.castling_rights[self.side_to_move as usize];
-        let king_on_original_square = castling_rights != CatslingRights::NoCastling;
+        let king_on_original_square = castling_rights != CastlingRights::NoCastling;
         if !king_on_original_square {
             return None;
         }
         let a_rook_on_original_square =
-            castling_rights == CatslingRights::Both || castling_rights == CatslingRights::QueenSide;
+            castling_rights == CastlingRights::Both || castling_rights == CastlingRights::QueenSide;
         let h_rook_on_original_square =
-            castling_rights == CatslingRights::Both || castling_rights == CatslingRights::KingSide;
+            castling_rights == CastlingRights::Both || castling_rights == CastlingRights::KingSide;
 
         if !a_rook_on_original_square && !h_rook_on_original_square {
             return None;
@@ -1013,7 +1016,7 @@ impl Default for Board {
         ];
         let white = Self::combine(white_pieces);
         let black = Self::combine(black_pieces);
-        Self {
+        let mut board = Self {
             white_pieces,
             black_pieces,
             white,
@@ -1022,10 +1025,12 @@ impl Default for Board {
             halfmoves: 0,
             side_to_move: Color::White,
             status: Status::Ongoing,
-            castling_rights: [CatslingRights::Both, CatslingRights::Both],
+            castling_rights: [CastlingRights::Both, CastlingRights::Both],
             en_passant_square: None,
             hash: 0,
-        }
+        };
+        board.init_hash();
+        board
     }
 }
 
@@ -1051,7 +1056,7 @@ impl From<FEN> for Board {
         }
         let white = Self::combine(fen.pieces[Color::White as usize]);
         let black = Self::combine(fen.pieces[Color::Black as usize]);
-        Self {
+        let mut board = Self {
             white_pieces: fen.pieces[Color::White as usize],
             black_pieces: fen.pieces[Color::Black as usize],
             white,
@@ -1068,7 +1073,9 @@ impl From<FEN> for Board {
             castling_rights: fen.castling_rules,
             en_passant_square: fen.en_passant_target,
             hash: 0,
-        }
+        };
+        board.init_hash();
+        board
     }
 }
 

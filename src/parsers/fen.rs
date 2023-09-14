@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     board::Board,
-    castling_rights::CatslingRights,
+    castling_rights::CastlingRights,
     moves::CastlingSide,
     piece::{Color, PieceType},
     Bitboard, Square,
@@ -20,7 +20,7 @@ pub struct FEN {
     pub pieces: [[Bitboard; 6]; 2],
     pub active_color: Color,
     pub en_passant_target: Option<Square>,
-    pub castling_rules: [CatslingRights; 2],
+    pub castling_rules: [CastlingRights; 2],
     pub halfmove_clock: u16,
     pub fullmove_number: u16,
 }
@@ -56,33 +56,33 @@ impl FromStr for FEN {
         // Skip castling rights and posible en passant for now.
         let castling_rules = parse_castling(parts.next().unwrap());
         let rights = match castling_rules {
-            (None, None) => [CatslingRights::NoCastling, CatslingRights::NoCastling],
+            (None, None) => [CastlingRights::NoCastling, CastlingRights::NoCastling],
             (None, Some(side)) => [
-                CatslingRights::NoCastling,
+                CastlingRights::NoCastling,
                 match side {
-                    CastlingSide::KingSide => CatslingRights::KingSide,
-                    CastlingSide::QueenSide => CatslingRights::QueenSide,
-                    CastlingSide::Both => CatslingRights::Both,
+                    CastlingSide::KingSide => CastlingRights::KingSide,
+                    CastlingSide::QueenSide => CastlingRights::QueenSide,
+                    CastlingSide::Both => CastlingRights::Both,
                 },
             ],
             (Some(side), None) => [
                 match side {
-                    CastlingSide::KingSide => CatslingRights::KingSide,
-                    CastlingSide::QueenSide => CatslingRights::QueenSide,
-                    CastlingSide::Both => CatslingRights::Both,
+                    CastlingSide::KingSide => CastlingRights::KingSide,
+                    CastlingSide::QueenSide => CastlingRights::QueenSide,
+                    CastlingSide::Both => CastlingRights::Both,
                 },
-                CatslingRights::NoCastling,
+                CastlingRights::NoCastling,
             ],
             (Some(white_side), Some(black_side)) => [
                 match white_side {
-                    CastlingSide::KingSide => CatslingRights::KingSide,
-                    CastlingSide::QueenSide => CatslingRights::QueenSide,
-                    CastlingSide::Both => CatslingRights::Both,
+                    CastlingSide::KingSide => CastlingRights::KingSide,
+                    CastlingSide::QueenSide => CastlingRights::QueenSide,
+                    CastlingSide::Both => CastlingRights::Both,
                 },
                 match black_side {
-                    CastlingSide::KingSide => CatslingRights::KingSide,
-                    CastlingSide::QueenSide => CatslingRights::QueenSide,
-                    CastlingSide::Both => CatslingRights::Both,
+                    CastlingSide::KingSide => CastlingRights::KingSide,
+                    CastlingSide::QueenSide => CastlingRights::QueenSide,
+                    CastlingSide::Both => CastlingRights::Both,
                 },
             ],
         };
