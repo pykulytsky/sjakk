@@ -198,3 +198,13 @@ pub const ALL_SQUARES: [Square; 64] = [
 ];
 
 pub const CENTRAL_SQUARES: [Square; 4] = [Square::D4, Square::E4, Square::D5, Square::E5];
+
+pub const KINGSIDE_CASTLING_SQUARES: [[Square; 2]; 2] =
+    [[Square::F1, Square::G1], [Square::F8, Square::G8]];
+pub const KINGSIDE_CASTLING_TARGET_SQUARES: [[Square; 2]; 2] =
+    [[Square::E1, Square::G1], [Square::E8, Square::G8]];
+
+pub const QUEENSIDE_CASTLING_SQUARES: [[Square; 2]; 2] =
+    [[Square::C1, Square::D1], [Square::C8, Square::D8]];
+pub const QUEENSIDE_CASTLING_TARGET_SQUARES: [[Square; 2]; 2] =
+    [[Square::E1, Square::C1], [Square::E8, Square::C8]];

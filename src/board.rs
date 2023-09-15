@@ -399,7 +399,7 @@ impl Board {
             self.hash ^= hashing::EP_KEYS[square.file() as usize];
             self.en_passant_square = None;
         }
-        self.update_position(m);
+        self.update_position(m, piece, captured);
         self.side_to_move = self.side_to_move.opposite();
         self.ksq = self.pieces(self.side_to_move)[PieceType::King as usize].lsb_square();
         self.hash ^= hashing::SIDE_KEY;
@@ -407,9 +407,7 @@ impl Board {
     }
 
     #[inline]
-    fn update_position(&mut self, m: &Move) {
-        let piece = self.moved_piece(m);
-        let capture = self.captured_piece(m);
+    fn update_position(&mut self, m: &Move, piece: PieceType, capture: Option<PieceType>) {
         let from_bb = Bitboard::from_square(m.from());
         let to_bb = Bitboard::from_square(m.to());
         let from_to_bb = from_bb ^ to_bb;

@@ -29,7 +29,7 @@ impl CastlingRights {
     }
 
     pub fn is_queenside(&self) -> bool {
-        *self as usize == 1 || *self as usize == 3
+        *self as usize == 2 || *self as usize == 3
     }
 
     pub fn update_castling_rights(
