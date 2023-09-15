@@ -6,7 +6,6 @@ pub mod castling_rights;
 pub mod constants;
 pub mod gen_moves;
 pub mod hashing;
-pub mod magic;
 pub mod moves;
 pub mod parsers;
 pub mod perft;

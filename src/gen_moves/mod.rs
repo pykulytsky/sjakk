@@ -1,4 +1,6 @@
-use crate::{magic::*, Bitboard, Color, File, Rank, Square};
+use crate::{Bitboard, Color, Square};
+mod magic;
+use magic::*;
 
 #[inline]
 pub fn get_bishop_rays(sq: Square) -> Bitboard {
@@ -55,10 +57,6 @@ pub fn get_pawn_attacks(sq: Square, color: Color, blockers: Bitboard) -> Bitboar
             & blockers
     }
 }
-#[inline]
-pub fn get_castle_moves() -> Bitboard {
-    CASTLE_MOVES
-}
 
 #[inline]
 pub fn get_pawn_quiets(sq: Square, color: Color, blockers: Bitboard) -> Bitboard {
@@ -84,47 +82,4 @@ pub fn get_pawn_quiets(sq: Square, color: Color, blockers: Bitboard) -> Bitboard
 #[inline]
 pub fn get_pawn_moves(sq: Square, color: Color, blockers: Bitboard) -> Bitboard {
     get_pawn_attacks(sq, color, blockers) ^ get_pawn_quiets(sq, color, blockers)
-}
-
-#[inline]
-pub fn line(sq1: Square, sq2: Square) -> Bitboard {
-    unsafe {
-        *LINE
-            .get_unchecked(sq1.0 as usize)
-            .get_unchecked(sq2.0 as usize)
-    }
-}
-
-#[inline]
-pub fn between(sq1: Square, sq2: Square) -> Bitboard {
-    unsafe {
-        *BETWEEN
-            .get_unchecked(sq1.0 as usize)
-            .get_unchecked(sq2.0 as usize)
-    }
-}
-
-#[inline]
-pub fn get_rank(rank: Rank) -> Bitboard {
-    unsafe { *RANKS.get_unchecked(rank as usize) }
-}
-
-#[inline]
-pub fn get_file(file: File) -> Bitboard {
-    unsafe { *FILES.get_unchecked(file as usize) }
-}
-
-#[inline]
-pub fn get_adjacent_files(file: File) -> Bitboard {
-    unsafe { *ADJACENT_FILES.get_unchecked(file as usize) }
-}
-
-#[inline]
-pub fn get_pawn_source_double_moves() -> Bitboard {
-    PAWN_SOURCE_DOUBLE_MOVES
-}
-
-#[inline]
-pub fn get_pawn_dest_double_moves() -> Bitboard {
-    PAWN_DEST_DOUBLE_MOVES
 }
