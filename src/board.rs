@@ -370,7 +370,7 @@ impl Board {
             self.hash ^= hashing::PIECE_KEYS[piece_idx][m.to().0 as usize]
         }
 
-        if piece == PieceType::Pawn {
+        if piece == PieceType::Pawn || captured.is_some() {
             self.halfmoves = 0;
         }
         if captured.is_none() && piece != PieceType::Pawn {
