@@ -27,7 +27,7 @@ fn search(c: &mut Criterion) {
     let thread_pool = ThreadPool::new().unwrap();
     group.bench_function("alpha beta negamax", |b| {
         let mut board = black_box(Board::default());
-        b.iter(|| board.alpha_beta_negamax_root(3));
+        // b.iter(|| board.alpha_beta_negamax_root(3));
     });
     group.bench_function("negamax", |b| {
         let mut board = black_box(Board::default());

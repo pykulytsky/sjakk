@@ -1,8 +1,8 @@
 use std::{
-    collections::VecDeque,
+    collections::{hash_map::Entry, VecDeque},
     sync::{
         atomic::{AtomicI32, AtomicU32, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -23,6 +23,7 @@ use crate::{
     parsers::fen::{self, FENParseError, FEN},
     piece::{Bishop, Color, King, Knight, Pawn, PieceType, Queen, Rook},
     rays::{BISHOP_ATTACKS, RAY_ATTACKS, ROOK_ATTACKS},
+    transposition_table::{NodeType, TTEntry, TranspositionTable},
     utils::between,
     Bitboard, Piece, Rank, Square,
 };
@@ -41,7 +42,7 @@ pub enum DrawReason {
     Repetition,
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Debug, Clone)]
 pub struct Board {
     pub white_pieces: [Bitboard; 6],
     pub black_pieces: [Bitboard; 6],
@@ -55,6 +56,7 @@ pub struct Board {
     pub en_passant_square: Option<Square>,
     pub ksq: Square,
     pub hash: u64,
+    pub tt: Arc<Mutex<TranspositionTable>>,
 }
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -338,7 +340,7 @@ impl Board {
         Err(IllegalMove)
     }
 
-    pub fn make_move_new(&mut self, m: &Move) -> Board {
+    pub fn make_move_new(&self, m: &Move) -> Board {
         let mut board = self.clone();
         unsafe { board.make_move_unchecked(m) }
         board
@@ -800,13 +802,40 @@ impl Board {
     }
 
     #[inline]
-    pub fn evaluate(&mut self) -> f32 {
+    pub fn evaluate(&self) -> f32 {
         self.material()
     }
 
     #[inline]
-    pub fn evaluate_relative(&mut self) -> f32 {
+    pub fn evaluate_relative(&self) -> f32 {
         self.evaluate() * (self.side_to_move.eval_mask() as f32)
+    }
+
+    pub fn quiesce(&self, mut alpha: f32, beta: f32, depth: usize) -> f32 {
+        let mut score = f32::MIN;
+        let stand_pat = self.evaluate_relative();
+        if stand_pat >= beta {
+            return beta;
+        }
+        if alpha < stand_pat {
+            alpha = stand_pat;
+        }
+        if depth == 0 {
+            return alpha;
+        }
+        let moves = self.legal_moves();
+        let captures = moves.iter().filter(|m| self.captured_piece(m).is_some());
+        for capture in captures {
+            let board = self.make_move_new(capture);
+            score = -board.quiesce(-beta, -alpha, depth - 1);
+            if score >= beta {
+                return beta;
+            }
+            if score > alpha {
+                alpha = score;
+            }
+        }
+        alpha
     }
 
     #[inline]
@@ -827,49 +856,80 @@ impl Board {
     }
 
     #[inline]
-    pub fn alpha_beta_negamax(&mut self, mut alpha: f32, beta: f32, depth: usize) -> f32 {
+    pub fn alpha_beta_negamax(
+        &mut self,
+        mut alpha: f32,
+        beta: f32,
+        depth: usize,
+        tt: Arc<Mutex<TranspositionTable>>,
+    ) -> f32 {
         if depth == 0 {
-            return self.evaluate_relative();
+            return self.quiesce(alpha, beta, 5);
+        }
+        if let Entry::Occupied(ttentry) = tt.lock().unwrap().entry(self.hash) {
+            let ttentry = ttentry.get();
+            if ttentry.depth >= depth {
+                match ttentry.node_type {
+                    NodeType::PV => return ttentry.eval,
+                    NodeType::All if ttentry.eval <= alpha => return ttentry.eval,
+                    NodeType::Cut if ttentry.eval >= beta => return ttentry.eval,
+                    _ => {}
+                }
+            }
         }
 
         let moves = self.legal_moves();
+        let mut node_type = NodeType::Cut;
         for m in moves.iter() {
             let mut board = self.make_move_new(m);
-            let score = -board.alpha_beta_negamax(-beta, -alpha, depth - 1);
+            let score = -board.alpha_beta_negamax(-beta, -alpha, depth - 1, tt.clone());
 
             if score >= beta {
+                // cutoff
+                tt.lock().unwrap().insert(
+                    self.hash,
+                    TTEntry::new(self.hash, depth, score, Some(m.to_owned()), NodeType::Cut),
+                );
                 return score;
             }
             if score > alpha {
+                // exact
                 alpha = score;
+                node_type = NodeType::PV;
+            } else if score <= alpha {
+                node_type = NodeType::All;
             }
         }
+        tt.lock().unwrap().insert(
+            self.hash,
+            TTEntry::new(self.hash, depth, alpha, None, node_type),
+        );
         alpha
     }
 
-    #[inline]
-    pub fn alpha_beta_negamax_root(&mut self, depth: usize) -> (f32, Option<Move>) {
-        if depth == 0 {
-            return (f32::MIN, None);
-        }
-        let mut alpha = f32::MIN;
-        let mut alpha_move = None;
-        let beta = f32::MAX;
-        let moves = self.legal_moves();
-        for m in moves.iter() {
-            let mut board = self.make_move_new(m);
-            let score = -board.alpha_beta_negamax(-beta, -alpha, depth - 1);
-            if score >= beta {
-                return (beta, Some(m.to_owned()));
-            }
-            if score > alpha {
-                alpha = score;
-                alpha_move = Some(m.to_owned());
-            }
-        }
-        (alpha, alpha_move)
-    }
-
+    // #[inline]
+    // pub fn alpha_beta_negamax_root(&mut self, depth: usize) -> (f32, Option<Move>) {
+    //     if depth == 0 {
+    //         return (f32::MIN, None);
+    //     }
+    //     let mut alpha = f32::MIN;
+    //     let mut alpha_move = None;
+    //     let beta = f32::MAX;
+    //     let moves = self.legal_moves();
+    //     for m in moves.iter() {
+    //         let mut board = self.make_move_new(m);
+    //         let score = -board.alpha_beta_negamax(-beta, -alpha, depth - 1);
+    //         if score >= beta {
+    //             return (beta, Some(m.to_owned()));
+    //         }
+    //         if score > alpha {
+    //             alpha = score;
+    //             alpha_move = Some(m.to_owned());
+    //         }
+    //     }
+    //     (alpha, alpha_move)
+    // }
+    //
     #[inline]
     pub fn alpha_beta_negamax_root_async(
         &mut self,
@@ -885,10 +945,12 @@ impl Board {
         let barrier = Arc::new(AtomicU32::new(moves.len() as u32));
         let alpha = Arc::new(AtomicI32::new(i32::MIN));
         let beta = Arc::new(f32::MAX);
+
         for (i, m) in moves.iter().enumerate() {
             let m = m.clone().to_owned();
             let barrier = barrier.clone();
             let move_number = move_number.clone();
+            let tt = self.tt.clone();
             let mut b = self.clone();
             let alpha = alpha.clone();
             let beta = beta.clone();
@@ -899,13 +961,14 @@ impl Board {
                         -(*beta),
                         -(alpha.load(Ordering::Acquire) as f32 / 1000.0),
                         depth - 1,
+                        tt.clone(),
                     );
                     if score >= *beta {
                         alpha.store((*beta * 1000.0) as i32, Ordering::Release);
                         move_number.store(i as u32, Ordering::Release);
                         return;
                     }
-                    if score > alpha.load(Ordering::Acquire) as f32 {
+                    if score > alpha.load(Ordering::Acquire) as f32 / 1000.0 {
                         alpha.store((score * 1000.0) as i32, Ordering::Release);
                         move_number.store(i as u32, Ordering::Release);
                     }
@@ -1028,6 +1091,7 @@ impl Default for Board {
             en_passant_square: None,
             ksq: Square::E1,
             hash: 0,
+            tt: Arc::new(Mutex::new(TranspositionTable::new())),
         };
         board.init_hash();
         board
@@ -1073,6 +1137,7 @@ impl From<FEN> for Board {
             en_passant_square: fen.en_passant_target,
             ksq: fen.pieces[fen.active_color as usize][PieceType::King as usize].lsb_square(),
             hash: 0,
+            tt: Arc::new(Mutex::new(TranspositionTable::new())),
         };
         board.init_hash();
         board

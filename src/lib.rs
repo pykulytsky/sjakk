@@ -12,6 +12,7 @@ pub mod perft;
 pub mod piece;
 pub mod rays;
 pub mod square;
+pub mod transposition_table;
 pub mod utils;
 
 pub use bitboard::Bitboard;
