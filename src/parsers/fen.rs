@@ -258,7 +258,8 @@ impl From<Board> for FEN {
             castling_rules: board.castling_rights,
             en_passant_target: None,
             halfmove_clock: board.halfmoves,
-            fullmove_number: board.move_list.len() as u16 / 2,
+            // TODO add fullmove_clock to board
+            fullmove_number: 0,
         }
     }
 }

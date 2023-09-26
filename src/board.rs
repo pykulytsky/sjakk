@@ -4,11 +4,11 @@ use std::{
         atomic::{AtomicI32, AtomicU32, Ordering},
         Arc, Mutex,
     },
+    time::{self, Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use futures::executor::ThreadPool;
 use rand::seq::SliceRandom;
-use smallvec::{smallvec, SmallVec};
 use thiserror::Error;
 
 use crate::{
@@ -48,7 +48,6 @@ pub struct Board {
     pub black_pieces: [Bitboard; 6],
     pub white: Bitboard,
     pub black: Bitboard,
-    pub move_list: SmallVec<[Move; 256]>,
     pub halfmoves: u16,
     pub side_to_move: Color,
     pub status: Status,
@@ -405,7 +404,6 @@ impl Board {
         self.side_to_move = self.side_to_move.opposite();
         self.ksq = self.pieces(self.side_to_move)[PieceType::King as usize].lsb_square();
         self.hash ^= hashing::SIDE_KEY;
-        self.move_list.push(*m);
     }
 
     #[inline]
@@ -811,10 +809,32 @@ impl Board {
         self.evaluate() * (self.side_to_move.eval_mask() as f32)
     }
 
-    pub fn quiesce(&self, mut alpha: f32, beta: f32, depth: usize) -> f32 {
-        let mut score = f32::MIN;
+    pub fn quiesce(
+        &self,
+        mut alpha: f32,
+        beta: f32,
+        depth: usize,
+        tt: Arc<Mutex<TranspositionTable>>,
+    ) -> f32 {
+        if let Entry::Occupied(ttentry) = tt.lock().unwrap().entry(self.hash) {
+            let ttentry = ttentry.get();
+            if ttentry.depth >= depth {
+                match ttentry.node_type {
+                    NodeType::PV => return ttentry.eval,
+                    NodeType::All if ttentry.eval <= alpha => return ttentry.eval,
+                    NodeType::Cut if ttentry.eval >= beta => return ttentry.eval,
+                    _ => {}
+                }
+            }
+        }
+
+        let mut score: f32 = f32::MIN;
         let stand_pat = self.evaluate_relative();
         if stand_pat >= beta {
+            tt.lock().unwrap().insert(
+                self.hash,
+                TTEntry::new(self.hash, depth, score, None, NodeType::Cut),
+            );
             return beta;
         }
         if alpha < stand_pat {
@@ -825,16 +845,35 @@ impl Board {
         }
         let moves = self.legal_moves();
         let captures = moves.iter().filter(|m| self.captured_piece(m).is_some());
+        let mut node_type = NodeType::Cut;
         for capture in captures {
             let board = self.make_move_new(capture);
-            score = -board.quiesce(-beta, -alpha, depth - 1);
+            score = -board.quiesce(-beta, -alpha, depth - 1, tt.clone());
             if score >= beta {
+                tt.lock().unwrap().insert(
+                    self.hash,
+                    TTEntry::new(
+                        self.hash,
+                        depth,
+                        score,
+                        Some(capture.to_owned()),
+                        NodeType::Cut,
+                    ),
+                );
                 return beta;
             }
             if score > alpha {
+                node_type = NodeType::PV;
                 alpha = score;
+            } else if score <= alpha {
+                node_type = NodeType::All;
             }
         }
+
+        tt.lock().unwrap().insert(
+            self.hash,
+            TTEntry::new(self.hash, depth, alpha, None, node_type),
+        );
         alpha
     }
 
@@ -862,9 +901,10 @@ impl Board {
         beta: f32,
         depth: usize,
         tt: Arc<Mutex<TranspositionTable>>,
+        time_limit: Arc<Instant>,
     ) -> f32 {
-        if depth == 0 {
-            return self.quiesce(alpha, beta, 5);
+        if depth == 0 || Instant::now() > *time_limit {
+            return self.quiesce(alpha, beta, 3, tt.clone());
         }
         if let Entry::Occupied(ttentry) = tt.lock().unwrap().entry(self.hash) {
             let ttentry = ttentry.get();
@@ -882,7 +922,8 @@ impl Board {
         let mut node_type = NodeType::Cut;
         for m in moves.iter() {
             let mut board = self.make_move_new(m);
-            let score = -board.alpha_beta_negamax(-beta, -alpha, depth - 1, tt.clone());
+            let score =
+                -board.alpha_beta_negamax(-beta, -alpha, depth - 1, tt.clone(), time_limit.clone());
 
             if score >= beta {
                 // cutoff
@@ -935,7 +976,12 @@ impl Board {
         &mut self,
         depth: usize,
         executor: &ThreadPool,
+        time_limit: Duration,
     ) -> (f32, Option<Move>) {
+        let time = Arc::new(Instant::now() + time_limit);
+        if Instant::now() > *time {
+            return (0.0, None);
+        }
         let moves = self.legal_moves();
         if moves.is_empty() {
             return (f32::MIN, None);
@@ -951,9 +997,10 @@ impl Board {
             let barrier = barrier.clone();
             let move_number = move_number.clone();
             let tt = self.tt.clone();
-            let mut b = self.clone();
+            let b = self.clone();
             let alpha = alpha.clone();
             let beta = beta.clone();
+            let time = time.clone();
             results.push_back(async move {
                 let result = async move {
                     let mut board = b.make_move_new(&m);
@@ -962,6 +1009,7 @@ impl Board {
                         -(alpha.load(Ordering::Acquire) as f32 / 1000.0),
                         depth - 1,
                         tt.clone(),
+                        time,
                     );
                     if score >= *beta {
                         alpha.store((*beta * 1000.0) as i32, Ordering::Release);
@@ -1029,7 +1077,7 @@ impl Board {
             let sc = sc.clone();
             let barrier = barrier.clone();
             let move_number = move_number.clone();
-            let mut b = self.clone();
+            let b = self.clone();
             results.push_back(async move {
                 let result = async move {
                     let mut board = b.make_move_new(&m);
@@ -1083,7 +1131,6 @@ impl Default for Board {
             black_pieces,
             white,
             black,
-            move_list: smallvec![],
             halfmoves: 0,
             side_to_move: Color::White,
             status: Status::Ongoing,
@@ -1100,24 +1147,6 @@ impl Default for Board {
 
 impl From<FEN> for Board {
     fn from(fen: FEN) -> Self {
-        let mut move_list = vec![];
-        if let Some(square) = fen.en_passant_target {
-            match square.rank() {
-                // White pawn moved 2 squares up.
-                Rank::Rank3 => {
-                    let from_square = Square::from_file_and_rank(square.file(), Rank::Rank2);
-                    let to_square = Square::from_file_and_rank(square.file(), Rank::Rank4);
-                    move_list.push(Move::new(from_square, to_square));
-                }
-                // Black pawn moved 2 squares up.
-                Rank::Rank6 => {
-                    let from_square = Square::from_file_and_rank(square.file(), Rank::Rank7);
-                    let to_square = Square::from_file_and_rank(square.file(), Rank::Rank5);
-                    move_list.push(Move::new(from_square, to_square));
-                }
-                _ => unreachable!(),
-            }
-        }
         let white = Self::combine(fen.pieces[Color::White as usize]);
         let black = Self::combine(fen.pieces[Color::Black as usize]);
         let mut board = Self {
@@ -1125,7 +1154,6 @@ impl From<FEN> for Board {
             black_pieces: fen.pieces[Color::Black as usize],
             white,
             black,
-            move_list: move_list.into(),
             halfmoves: fen.halfmove_clock,
             side_to_move: fen.active_color,
             status: if fen.halfmove_clock < 100 {
@@ -1258,7 +1286,7 @@ impl Iterator for IntoIter {
             self.board.status = Status::Checkmate(self.board.side_to_move.opposite());
             return None;
         }
-        if self.board.status != Status::Ongoing || self.board.move_list.len() == 250 {
+        if self.board.status != Status::Ongoing {
             println!("{:?}", self.board.status);
             return None;
         }
@@ -1305,11 +1333,7 @@ mod tests {
         let board =
             Board::from_fen("rnbqkbnr/p1p1pppp/1p6/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3")
                 .unwrap();
-        assert_eq!(board.move_list.len(), 1);
-        let piece = board.captured_piece(&board.move_list[0]).unwrap();
-        assert_eq!(piece, PieceType::Pawn);
-        assert_eq!(board.move_list[0].from(), Square::from_str("d7").unwrap());
-        assert_eq!(board.move_list[0].to(), Square::from_str("d5").unwrap());
+        assert!(board.en_passant_square.is_some());
         let moves = board.legal_moves();
         assert!(moves.iter().any(|m| m.is_en_passant()));
     }
@@ -1618,82 +1642,82 @@ mod tests {
 
     #[test]
     fn perft_starting_position_depth_1() {
-        let mut board = Board::default();
-        assert_eq!(perft(&mut board, 1), 20);
+        let board = Board::default();
+        assert_eq!(perft(&board, 1), 20);
     }
 
     #[test]
     fn perft_starting_position_depth_2() {
-        let mut board = Board::default();
-        assert_eq!(perft(&mut board, 2), 400);
+        let board = Board::default();
+        assert_eq!(perft(&board, 2), 400);
     }
 
     #[test]
     fn perft_starting_position_depth_3() {
-        let mut board = Board::default();
-        assert_eq!(perft(&mut board, 3), 8902);
+        let board = Board::default();
+        assert_eq!(perft(&board, 3), 8902);
     }
 
     #[test]
     fn perft_starting_position_depth_4() {
-        let mut board = Board::default();
-        assert_eq!(perft(&mut board, 4), 197_281);
+        let board = Board::default();
+        assert_eq!(perft(&board, 4), 197_281);
     }
 
     #[test]
     fn perft_starting_position_depth_5() {
-        let mut board = Board::default();
-        assert_eq!(perft(&mut board, 5), 4_865_609);
+        let board = Board::default();
+        assert_eq!(perft(&board, 5), 4_865_609);
     }
 
     #[test]
     fn perft_depth_6() {
-        let mut board = Board::from_fen("5K2/8/1Q6/2N5/8/1p2k3/8/8 w - - 0 1").unwrap();
-        assert_eq!(perft(&mut board, 5), 1004658);
+        let board = Board::from_fen("5K2/8/1Q6/2N5/8/1p2k3/8/8 w - - 0 1").unwrap();
+        assert_eq!(perft(&board, 5), 1004658);
     }
 
     #[test]
     fn perft_kiwipete_depth_1() {
-        let mut board =
+        let board =
             Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
                 .unwrap();
-        assert_eq!(perft(&mut board, 1), 48);
+        assert_eq!(perft(&board, 1), 48);
     }
 
     #[test]
     fn perft_kiwipete_depth_2() {
-        let mut board =
+        let board =
             Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
                 .unwrap();
-        assert_eq!(perft(&mut board, 2), 2039);
+        assert_eq!(perft(&board, 2), 2039);
     }
 
     #[test]
     fn perft_kiwipete_depth_3() {
-        let mut board =
+        let board =
             Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
                 .unwrap();
-        assert_eq!(perft(&mut board, 3), 97862);
+        assert_eq!(perft(&board, 3), 97862);
     }
 
     #[test]
     fn perft_kiwipete_depth_4() {
-        let mut board =
+        let board =
             Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
                 .unwrap();
-        assert_eq!(perft(&mut board, 4), 4085603);
+        assert_eq!(perft(&board, 4), 4085603);
     }
 
     #[test]
     fn position_3_depth_1() {
-        let mut board = Board::from_fen("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1").unwrap();
-        assert_eq!(perft(&mut board, 1), 14);
+        let board = Board::from_fen("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1").unwrap();
+        assert_eq!(perft(&board, 1), 14);
     }
 
     #[test]
     fn position_3_depth_2() {
-        let mut board = Board::from_fen("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1").unwrap();
-        assert_eq!(perft(&mut board, 2), 191);
+        let board = Board::from_fen("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1").unwrap();
+        assert_eq!(perft(&board, 2), 191);
     }
 
     #[test]

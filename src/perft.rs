@@ -11,7 +11,7 @@ use futures::executor::ThreadPool;
 use crate::board::Board;
 
 #[inline]
-pub fn perft(board: &mut Board, depth: usize) -> usize {
+pub fn perft(board: &Board, depth: usize) -> usize {
     let moves = board.legal_moves();
 
     let mut final_depth = 0;
@@ -42,7 +42,7 @@ pub fn perft_async(board: &Board, depth: usize, executor: &ThreadPool) -> usize 
         for m in moves.iter() {
             let m = *m;
             let final_depth = final_depth.clone();
-            let mut board = board.clone();
+            let board = board.clone();
             let barrier = barrier.clone();
             results.push_back(async move {
                 let result = async move {
@@ -101,7 +101,7 @@ pub fn perft_async_divide(
     for m in moves.iter() {
         let m = *m;
         let final_depth = final_depth.clone();
-        let mut board = board.clone();
+        let board = board.clone();
         let barrier = barrier.clone();
         let node_list = nodes.clone();
         results.push_back(async move {

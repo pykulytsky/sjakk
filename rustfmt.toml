@@ -1,0 +1,4 @@
+ignore = [
+    "src/gen_moves",
+    "src/evaluation/piece_square_tables.rs"
+]

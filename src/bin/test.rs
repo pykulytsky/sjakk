@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use sjakk::board::{Board, Status};
 
 fn main() {
@@ -6,7 +8,7 @@ fn main() {
     println!("evaluation: {}", board.evaluate_relative());
     println!("{}", board);
     while board.status == Status::Ongoing {
-        let (_, m) = board.alpha_beta_negamax_root_async(6, &executor);
+        let (_, m) = board.alpha_beta_negamax_root_async(6, &executor, Duration::from_secs(3));
         let m = m.unwrap();
         unsafe { board.make_move_unchecked(&m) };
 
