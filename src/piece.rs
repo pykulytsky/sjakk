@@ -65,6 +65,13 @@ impl PieceType {
         Self::King,
     ];
 
+    pub const PAWN: usize = 0;
+    pub const ROOK: usize = 1;
+    pub const KNIGHT: usize = 2;
+    pub const BISHOP: usize = 3;
+    pub const QUEEN: usize = 4;
+    pub const KING: usize = 5;
+
     #[inline]
     pub fn value(&self) -> u32 {
         match self {
