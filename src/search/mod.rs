@@ -17,6 +17,8 @@ use crate::transposition_table::TranspositionTable;
 
 use std::sync::Arc;
 
+mod mvv_lva;
+
 pub fn quiesce(
     board: &Board,
     mut alpha: f32,
@@ -36,7 +38,16 @@ pub fn quiesce(
         }
     }
 
+    let moves = board.legal_moves();
     let mut score: f32 = f32::MIN;
+    let (_, checkers) = board.find_pinned();
+    if moves.is_empty() {
+        if checkers.popcnt() == 0 {
+            return 0.0;
+        } else {
+            return score;
+        }
+    }
     let stand_pat = evaluate_relative(board);
     if stand_pat >= beta {
         tt.lock().unwrap().insert(
@@ -51,7 +62,6 @@ pub fn quiesce(
     if depth == 0 {
         return alpha;
     }
-    let moves = board.legal_moves();
     let captures = moves.iter().filter(|m| board.captured_piece(m).is_some());
     let mut node_type = NodeType::Cut;
     for capture in captures {
@@ -127,6 +137,7 @@ pub fn alpha_beta_negamax(
     }
 
     let moves = board.legal_moves();
+    let mut hash_move = None;
     let mut node_type = NodeType::Cut;
     for m in moves.iter() {
         let board = board.make_move_new(m);
@@ -150,6 +161,7 @@ pub fn alpha_beta_negamax(
         if score > alpha {
             // exact
             alpha = score;
+            hash_move = Some(m.to_owned());
             node_type = NodeType::PV;
         } else if score <= alpha {
             node_type = NodeType::All;
@@ -157,7 +169,7 @@ pub fn alpha_beta_negamax(
     }
     tt.lock().unwrap().insert(
         board.hash,
-        TTEntry::new(board.hash, depth, alpha, None, node_type),
+        TTEntry::new(board.hash, depth, alpha, hash_move, node_type),
     );
     alpha
 }

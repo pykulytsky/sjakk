@@ -1,4 +1,8 @@
-use crate::{board::Board, evaluation::piece_square_tables::*, Color, PieceType};
+use crate::{
+    board::{Board, Status},
+    evaluation::piece_square_tables::*,
+    Color, PieceType,
+};
 
 mod piece_square_tables;
 
@@ -81,7 +85,7 @@ pub fn piece_placement(board: &Board) -> f32 {
         .into_iter()
         .for_each(|sq| black += BLACK_QUEEN[sq.0 as usize]);
 
-    (white - black) as f32 * 0.1
+    (white - black) as f32 * 0.05
 }
 
 fn is_endgame(board: &Board) -> bool {
@@ -113,6 +117,9 @@ fn sufficient_material(board: &Board) -> bool {
 #[inline]
 pub fn evaluate(board: &Board) -> f32 {
     if !sufficient_material(board) {
+        return 0.0;
+    }
+    if let Status::Draw(_) = board.status {
         return 0.0;
     }
     material(board) + piece_placement(board)

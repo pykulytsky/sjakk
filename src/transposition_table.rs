@@ -11,11 +11,11 @@ pub enum NodeType {
 
 #[derive(Debug, Clone, Copy)]
 pub struct TTEntry {
-    pub(crate) key: u64,
-    pub(crate) depth: usize,
-    pub(crate) eval: f32,
-    pub(crate) best_move: Option<Move>,
-    pub(crate) node_type: NodeType,
+    pub key: u64,
+    pub depth: usize,
+    pub eval: f32,
+    pub best_move: Option<Move>,
+    pub node_type: NodeType,
 }
 
 impl TTEntry {
