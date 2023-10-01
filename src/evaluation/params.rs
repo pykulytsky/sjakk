@@ -1,0 +1,9 @@
+pub const DOUBLED_PAWN: i32 = 10;
+pub const ISOLATED_PAWN: i32 = 20;
+pub const BACKWARD_PAWN: i32 = 10;
+pub const PASSED_PAWN_MIDDLE: i32 = 20;
+pub const PASSED_PAWN_END: i32 = 40;
+pub const TEMPO: i32 = 10;
+pub const ROOK_ON_OPEN: i32 = 30;
+pub const ROOK_ON_SEMIOPEN: i32 = 10;
+pub const PAWN_SHIED: i32 = 10;

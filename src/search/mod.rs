@@ -8,6 +8,7 @@ use crate::{
 };
 use std::{
     collections::{hash_map::Entry, VecDeque},
+    hash::Hash,
     sync::atomic::{AtomicI32, AtomicU32, Ordering},
     time::Instant,
 };
@@ -21,10 +22,10 @@ pub mod mvv_lva;
 
 pub fn quiesce(
     board: &Board,
-    mut alpha: f32,
-    beta: f32,
+    mut alpha: i32,
+    beta: i32,
     tt: Arc<Mutex<TranspositionTable>>,
-) -> f32 {
+) -> i32 {
     let mut hash_move = None;
     if let Entry::Occupied(ttentry) = tt.lock().unwrap().entry(board.hash) {
         let ttentry = ttentry.get();
@@ -40,11 +41,11 @@ pub fn quiesce(
     }
 
     let moves = board.legal_moves();
-    let mut score: f32 = f32::MIN;
+    let mut score: i32 = i32::MIN;
     let (_, checkers) = board.find_pinned();
     if moves.is_empty() {
         if checkers.popcnt() == 0 {
-            return 0.0;
+            return 0;
         } else {
             return score;
         }
@@ -81,25 +82,27 @@ pub fn quiesce(
         }
         if score > alpha {
             node_type = NodeType::PV;
+            hash_move = Some(capture.to_owned());
             alpha = score;
         } else if score <= alpha {
+            hash_move = Some(capture.to_owned());
             node_type = NodeType::All;
         }
     }
 
     tt.lock().unwrap().insert(
         board.hash,
-        TTEntry::new(board.hash, 0, alpha, None, node_type),
+        TTEntry::new(board.hash, 0, alpha, hash_move, node_type),
     );
     alpha
 }
 
 #[inline]
-pub fn negamax(board: &Board, depth: usize) -> f32 {
+pub fn negamax(board: &Board, depth: usize) -> i32 {
     if depth == 0 {
         return evaluate_relative(board);
     }
-    let mut max = -f32::MAX;
+    let mut max = i32::MIN;
     let moves = board.legal_moves();
     for m in moves.iter() {
         let board = board.make_move_new(m);
@@ -114,12 +117,12 @@ pub fn negamax(board: &Board, depth: usize) -> f32 {
 #[inline]
 pub fn alpha_beta_negamax(
     board: &Board,
-    mut alpha: f32,
-    beta: f32,
+    mut alpha: i32,
+    beta: i32,
     depth: usize,
     tt: Arc<Mutex<TranspositionTable>>,
     time_limit: Arc<Instant>,
-) -> f32 {
+) -> i32 {
     if depth == 0 || Instant::now() > *time_limit {
         return quiesce(board, alpha, beta, tt.clone());
     }
@@ -145,7 +148,7 @@ pub fn alpha_beta_negamax(
     let moves = mvv_lva::score_moves(moves, board, hash_move);
     for m in moves.iter() {
         let board = board.make_move_new(m);
-        let score = alpha_beta_negamax(
+        let score = -alpha_beta_negamax(
             &board,
             -beta,
             -alpha,
@@ -169,6 +172,7 @@ pub fn alpha_beta_negamax(
             node_type = NodeType::PV;
         } else if score <= alpha {
             node_type = NodeType::All;
+            hash_move = Some(m.to_owned());
         }
     }
     tt.lock().unwrap().insert(
@@ -184,20 +188,20 @@ pub fn alpha_beta_negamax_root_async(
     depth: usize,
     executor: &ThreadPool,
     time_limit: Duration,
-) -> (f32, Option<Move>) {
+) -> (i32, Option<Move>) {
     let time = Arc::new(Instant::now() + time_limit);
     if Instant::now() > *time {
-        return (0.0, None);
+        return (0, None);
     }
     let moves = board.legal_moves();
     if moves.is_empty() {
-        return (f32::MIN, None);
+        return (i32::MIN, None);
     }
     let mut results = VecDeque::new();
     let move_number = Arc::new(AtomicU32::new(0));
     let barrier = Arc::new(AtomicU32::new(moves.len() as u32));
-    let alpha = Arc::new(AtomicI32::new(i32::MIN));
-    let beta = Arc::new(f32::MAX);
+    let alpha = Arc::new(AtomicI32::new(i32::MIN + 1));
+    let beta = Arc::new(i32::MAX);
 
     let moves = mvv_lva::score_moves(
         moves,
@@ -224,18 +228,19 @@ pub fn alpha_beta_negamax_root_async(
                 let score = -alpha_beta_negamax(
                     &board,
                     -(*beta),
-                    -(alpha.load(Ordering::Acquire) as f32 / 1000.0),
+                    -alpha.load(Ordering::Acquire),
                     depth - 1,
                     tt.clone(),
                     time,
                 );
                 if score >= *beta {
-                    alpha.store((*beta * 1000.0) as i32, Ordering::Release);
+                    alpha.store(*beta, Ordering::Release);
                     move_number.store(i as u32, Ordering::Release);
+                    barrier.store(0, Ordering::Release);
                     return;
                 }
-                if score > alpha.load(Ordering::Acquire) as f32 / 1000.0 {
-                    alpha.store((score * 1000.0) as i32, Ordering::Release);
+                if score > alpha.load(Ordering::Acquire) {
+                    alpha.store(score, Ordering::Release);
                     move_number.store(i as u32, Ordering::Release);
                 }
                 drop(alpha);
@@ -252,14 +257,14 @@ pub fn alpha_beta_negamax_root_async(
         std::hint::spin_loop();
     }
     (
-        alpha.load(Ordering::Acquire) as f32 / 1000.0,
+        alpha.load(Ordering::Acquire),
         Some(moves[move_number.load(Ordering::Acquire) as usize]),
     )
 }
 
 #[inline]
-pub fn negamax_root(board: &Board, depth: usize) -> (f32, Option<Move>) {
-    let mut max = -f32::MAX;
+pub fn negamax_root(board: &Board, depth: usize) -> (i32, Option<Move>) {
+    let mut max = i32::MIN;
     let moves = board.legal_moves();
     if moves.is_empty() {
         return (max, None);
@@ -300,8 +305,8 @@ pub fn negamax_root_async(
             let result = async move {
                 let board = b.make_move_new(&m);
                 let score = -negamax(&board, depth - 1);
-                if (score * 1000.0) as i32 > sc.load(Ordering::Acquire) {
-                    sc.store((score * 1000.0) as i32, Ordering::Release);
+                if score > sc.load(Ordering::Acquire) {
+                    sc.store(score, Ordering::Release);
                     move_number.store(i as u32, Ordering::Release);
                 }
                 barrier.fetch_sub(1, Ordering::Release);

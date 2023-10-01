@@ -73,14 +73,14 @@ impl PieceType {
     pub const KING: usize = 5;
 
     #[inline]
-    pub fn value(&self) -> u32 {
+    pub fn value(&self) -> i32 {
         match self {
-            PieceType::Pawn => 1,
-            PieceType::Rook => 5,
-            PieceType::Knight => 3,
-            PieceType::Bishop => 3,
-            PieceType::Queen => 9,
-            PieceType::King => 255,
+            PieceType::Pawn => 100,
+            PieceType::Rook => 500,
+            PieceType::Knight => 325,
+            PieceType::Bishop => 325,
+            PieceType::Queen => 975,
+            PieceType::King => 9999,
         }
     }
 

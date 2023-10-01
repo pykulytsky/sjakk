@@ -260,6 +260,9 @@ impl Display for Bitboard {
 }
 
 impl Bitboard {
+    pub const EMPTY: Bitboard = Bitboard(0);
+    pub const UNIVERSE: Bitboard = Bitboard(u64::MAX);
+
     /// Creates bitboard with `1` on the given square, with rest of the board filled with `0`.
     ///
     /// ```

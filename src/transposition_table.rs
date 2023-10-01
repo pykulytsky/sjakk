@@ -13,7 +13,7 @@ pub enum NodeType {
 pub struct TTEntry {
     pub key: u64,
     pub depth: usize,
-    pub eval: f32,
+    pub eval: i32,
     pub best_move: Option<Move>,
     pub node_type: NodeType,
 }
@@ -22,7 +22,7 @@ impl TTEntry {
     pub fn new(
         key: u64,
         depth: usize,
-        eval: f32,
+        eval: i32,
         best_move: Option<Move>,
         node_type: NodeType,
     ) -> Self {
