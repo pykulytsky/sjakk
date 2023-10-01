@@ -1,4 +1,7 @@
-use std::{fmt::Display, ops::Index};
+use std::{
+    fmt::Display,
+    ops::{Deref, DerefMut, Index},
+};
 
 use crate::{constants::MASK_RANK, piece::PieceType, Bitboard, File, Rank, Square};
 
@@ -157,6 +160,30 @@ impl MoveList {
 
     pub fn is_empty(&self) -> bool {
         self.len == 0
+    }
+}
+
+impl Deref for MoveList {
+    type Target = [Move];
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { std::slice::from_raw_parts(self.inner.as_ptr(), self.len) }
+    }
+}
+
+impl DerefMut for MoveList {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { std::slice::from_raw_parts_mut(self.inner.as_mut_ptr(), self.len) }
+    }
+}
+
+impl FromIterator<Move> for MoveList {
+    fn from_iter<T: IntoIterator<Item = Move>>(iter: T) -> Self {
+        let mut move_list = MoveList::new();
+        for m in iter {
+            move_list.push(m);
+        }
+        move_list
     }
 }
 

@@ -17,24 +17,25 @@ use crate::transposition_table::TranspositionTable;
 
 use std::sync::Arc;
 
-mod mvv_lva;
+pub mod mvv_lva;
 
 pub fn quiesce(
     board: &Board,
     mut alpha: f32,
     beta: f32,
-    depth: usize,
     tt: Arc<Mutex<TranspositionTable>>,
 ) -> f32 {
+    let mut hash_move = None;
     if let Entry::Occupied(ttentry) = tt.lock().unwrap().entry(board.hash) {
         let ttentry = ttentry.get();
-        if ttentry.depth >= depth {
-            match ttentry.node_type {
-                NodeType::PV => return ttentry.eval,
-                NodeType::All if ttentry.eval <= alpha => return ttentry.eval,
-                NodeType::Cut if ttentry.eval >= beta => return ttentry.eval,
-                _ => {}
-            }
+        if let Some(mv) = ttentry.best_move {
+            hash_move = Some(mv);
+        }
+        match ttentry.node_type {
+            NodeType::PV => return ttentry.eval,
+            NodeType::All if ttentry.eval <= alpha => return ttentry.eval,
+            NodeType::Cut if ttentry.eval >= beta => return ttentry.eval,
+            _ => {}
         }
     }
 
@@ -52,27 +53,25 @@ pub fn quiesce(
     if stand_pat >= beta {
         tt.lock().unwrap().insert(
             board.hash,
-            TTEntry::new(board.hash, depth, score, None, NodeType::Cut),
+            TTEntry::new(board.hash, 0, score, None, NodeType::Cut),
         );
         return beta;
     }
     if alpha < stand_pat {
         alpha = stand_pat;
     }
-    if depth == 0 {
-        return alpha;
-    }
+    let moves = mvv_lva::score_moves(moves, board, hash_move);
     let captures = moves.iter().filter(|m| board.captured_piece(m).is_some());
     let mut node_type = NodeType::Cut;
     for capture in captures {
         let board = board.make_move_new(capture);
-        score = -quiesce(&board, -beta, -alpha, depth - 1, tt.clone());
+        score = -quiesce(&board, -beta, -alpha, tt.clone());
         if score >= beta {
             tt.lock().unwrap().insert(
                 board.hash,
                 TTEntry::new(
                     board.hash,
-                    depth,
+                    0,
                     score,
                     Some(capture.to_owned()),
                     NodeType::Cut,
@@ -90,7 +89,7 @@ pub fn quiesce(
 
     tt.lock().unwrap().insert(
         board.hash,
-        TTEntry::new(board.hash, depth, alpha, None, node_type),
+        TTEntry::new(board.hash, 0, alpha, None, node_type),
     );
     alpha
 }
@@ -122,10 +121,14 @@ pub fn alpha_beta_negamax(
     time_limit: Arc<Instant>,
 ) -> f32 {
     if depth == 0 || Instant::now() > *time_limit {
-        return quiesce(board, alpha, beta, 3, tt.clone());
+        return quiesce(board, alpha, beta, tt.clone());
     }
+    let mut hash_move = None;
     if let Entry::Occupied(ttentry) = tt.lock().unwrap().entry(board.hash) {
         let ttentry = ttentry.get();
+        if let Some(mv) = ttentry.best_move {
+            hash_move = Some(mv);
+        }
         if ttentry.depth >= depth {
             match ttentry.node_type {
                 NodeType::PV => return ttentry.eval,
@@ -136,9 +139,10 @@ pub fn alpha_beta_negamax(
         }
     }
 
-    let moves = board.legal_moves();
-    let mut hash_move = None;
     let mut node_type = NodeType::Cut;
+
+    let moves = board.legal_moves();
+    let moves = mvv_lva::score_moves(moves, board, hash_move);
     for m in moves.iter() {
         let board = board.make_move_new(m);
         let score = alpha_beta_negamax(
@@ -195,6 +199,16 @@ pub fn alpha_beta_negamax_root_async(
     let alpha = Arc::new(AtomicI32::new(i32::MIN));
     let beta = Arc::new(f32::MAX);
 
+    let moves = mvv_lva::score_moves(
+        moves,
+        board,
+        board
+            .tt
+            .lock()
+            .unwrap()
+            .get(&board.hash)
+            .and_then(|entry| entry.best_move),
+    );
     for (i, m) in moves.iter().enumerate() {
         let m = m.clone().to_owned();
         let barrier = barrier.clone();

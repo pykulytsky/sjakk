@@ -797,7 +797,7 @@ impl Default for Board {
             en_passant_square: None,
             ksq: Square::E1,
             hash: 0,
-            tt: Arc::new(Mutex::new(TranspositionTable::new())),
+            tt: Arc::new(Mutex::new(TranspositionTable::with_capacity(4096))),
         };
         board.init_hash();
         board
@@ -824,7 +824,7 @@ impl From<FEN> for Board {
             en_passant_square: fen.en_passant_target,
             ksq: fen.pieces[fen.active_color as usize][PieceType::King as usize].lsb_square(),
             hash: 0,
-            tt: Arc::new(Mutex::new(TranspositionTable::new())),
+            tt: Arc::new(Mutex::new(TranspositionTable::with_capacity(4096))),
         };
         board.init_hash();
         board
