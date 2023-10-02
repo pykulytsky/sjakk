@@ -10,15 +10,6 @@ fn main() {
     // let mut board = Board::from_fen("8/8/p1p1Q3/P1P3Rp/5k1P/8/8/6K1 w - - 13 51").unwrap();
     let mut board = Board::default();
     while board.status == Status::Ongoing {
-        let (score, m) =
-            alpha_beta_negamax_root_async(&board, 6, &executor, Duration::from_secs(5));
-        let m = m.unwrap();
-        unsafe { board.make_move_unchecked(&m) };
-
-        print!("\x1B[2J\x1B[1;1H");
-        println!("score: {score}");
-        println!("{m}");
-        println!("{board}");
         loop {
             let mut m = String::new();
             std::io::stdin().read_line(&mut m).unwrap();
@@ -28,6 +19,15 @@ fn main() {
                 break;
             }
         }
+        let (score, m) =
+            alpha_beta_negamax_root_async(&board, 6, &executor, Duration::from_secs(5));
+        let m = m.unwrap();
+        unsafe { board.make_move_unchecked(&m) };
+
+        print!("\x1B[2J\x1B[1;1H");
+        println!("score: {score}");
+        println!("{m}");
+        println!("{board}");
     }
 }
 
