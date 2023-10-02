@@ -20,8 +20,8 @@ pub fn perft(board: &Board, depth: usize) -> usize {
         moves.len()
     } else {
         for m in moves.iter() {
-            let mut board = board.make_move_new(m);
-            final_depth += perft(&mut board, depth - 1);
+            let board = board.make_move_new(m);
+            final_depth += perft(&board, depth - 1);
         }
 
         final_depth
@@ -46,8 +46,8 @@ pub fn perft_async(board: &Board, depth: usize, executor: &ThreadPool) -> usize 
             let barrier = barrier.clone();
             results.push_back(async move {
                 let result = async move {
-                    let mut board = board.make_move_new(&m);
-                    let nodes = perft(&mut board, depth - 1);
+                    let board = board.make_move_new(&m);
+                    let nodes = perft(&board, depth - 1);
                     final_depth.fetch_add(nodes as u32, Ordering::Release);
                     barrier.fetch_sub(1, Ordering::Release);
                 };
@@ -69,15 +69,15 @@ pub fn perft_async(board: &Board, depth: usize, executor: &ThreadPool) -> usize 
 }
 
 #[inline]
-pub fn perft_divide(board: &mut Board, depth: usize) -> (BTreeMap<Move, usize>, usize) {
+pub fn perft_divide(board: &Board, depth: usize) -> (BTreeMap<Move, usize>, usize) {
     let moves = board.legal_moves();
 
     let mut nodes = BTreeMap::new();
     let mut final_nodes = 0;
 
     for m in moves.iter() {
-        let mut board = board.make_move_new(m);
-        let moves = perft(&mut board, depth - 1);
+        let board = board.make_move_new(m);
+        let moves = perft(&board, depth - 1);
         final_nodes += moves;
         nodes.insert(m.to_owned(), moves);
     }
@@ -106,8 +106,8 @@ pub fn perft_async_divide(
         let node_list = nodes.clone();
         results.push_back(async move {
             let result = async move {
-                let mut board = board.make_move_new(&m);
-                let nodes = perft(&mut board, depth - 1);
+                let board = board.make_move_new(&m);
+                let nodes = perft(&board, depth - 1);
                 final_depth.fetch_add(nodes as u32, Ordering::Release);
                 node_list.lock().unwrap().insert(m, nodes);
                 barrier.fetch_sub(1, Ordering::Release);

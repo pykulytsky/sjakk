@@ -108,6 +108,8 @@ pub fn piece_placement(board: &Board) -> i32 {
             .into_iter()
             .filter(|sq| {
                 MASK_FILE[sq.file() as usize] & board.pieces(Color::White)[PieceType::PAWN].0 == 0
+                    && MASK_FILE[sq.file() as usize] & board.pieces(Color::Black)[PieceType::PAWN].0
+                        != 0
             })
             .count() as isize
             * ROOK_ON_SEMIOPEN as isize;
@@ -115,6 +117,8 @@ pub fn piece_placement(board: &Board) -> i32 {
             .into_iter()
             .filter(|sq| {
                 MASK_FILE[sq.file() as usize] & board.pieces(Color::Black)[PieceType::PAWN].0 == 0
+                    && MASK_FILE[sq.file() as usize] & board.pieces(Color::White)[PieceType::PAWN].0
+                        != 0
             })
             .count() as isize
             * ROOK_ON_SEMIOPEN as isize;

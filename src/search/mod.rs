@@ -8,7 +8,6 @@ use crate::{
 };
 use std::{
     collections::{hash_map::Entry, VecDeque},
-    hash::Hash,
     sync::atomic::{AtomicI32, AtomicU32, Ordering},
     time::Instant,
 };
@@ -41,7 +40,7 @@ pub fn quiesce(
     }
 
     let moves = board.legal_moves();
-    let mut score: i32 = i32::MIN;
+    let mut score: i32 = i32::MIN + 1;
     let (_, checkers) = board.find_pinned();
     if moves.is_empty() {
         if checkers.popcnt() == 0 {
@@ -63,7 +62,7 @@ pub fn quiesce(
     }
     let moves = mvv_lva::score_moves(moves, board, hash_move);
     let captures = moves.iter().filter(|m| board.captured_piece(m).is_some());
-    let mut node_type = NodeType::Cut;
+    let mut node_type = NodeType::All;
     for capture in captures {
         let board = board.make_move_new(capture);
         score = -quiesce(&board, -beta, -alpha, tt.clone());
@@ -84,9 +83,6 @@ pub fn quiesce(
             node_type = NodeType::PV;
             hash_move = Some(capture.to_owned());
             alpha = score;
-        } else if score <= alpha {
-            hash_move = Some(capture.to_owned());
-            node_type = NodeType::All;
         }
     }
 
@@ -142,7 +138,7 @@ pub fn alpha_beta_negamax(
         }
     }
 
-    let mut node_type = NodeType::Cut;
+    let mut node_type = NodeType::All;
 
     let moves = board.legal_moves();
     let moves = mvv_lva::score_moves(moves, board, hash_move);
@@ -170,9 +166,6 @@ pub fn alpha_beta_negamax(
             alpha = score;
             hash_move = Some(m.to_owned());
             node_type = NodeType::PV;
-        } else if score <= alpha {
-            node_type = NodeType::All;
-            hash_move = Some(m.to_owned());
         }
     }
     tt.lock().unwrap().insert(
