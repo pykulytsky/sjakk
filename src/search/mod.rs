@@ -17,7 +17,7 @@ use crate::transposition_table::TranspositionTable;
 
 use std::sync::Arc;
 
-pub mod mvv_lva;
+pub mod score;
 
 pub fn quiesce(
     board: &Board,
@@ -41,12 +41,12 @@ pub fn quiesce(
 
     let moves = board.legal_moves();
     let mut score: i32 = i32::MIN + 1;
-    let (_, checkers) = board.find_pinned();
     if moves.is_empty() {
+        let (_, checkers) = board.find_pinned();
         if checkers.popcnt() == 0 {
             return 0;
         } else {
-            return score;
+            return i32::MIN / 2;
         }
     }
     let stand_pat = evaluate_relative(board);
@@ -60,7 +60,7 @@ pub fn quiesce(
     if alpha < stand_pat {
         alpha = stand_pat;
     }
-    let moves = mvv_lva::score_moves(moves, board, hash_move);
+    let moves = score::score_moves(moves, board, hash_move);
     let captures = moves.iter().filter(|m| board.captured_piece(m).is_some());
     let mut node_type = NodeType::All;
     for capture in captures {
@@ -141,7 +141,15 @@ pub fn alpha_beta_negamax(
     let mut node_type = NodeType::All;
 
     let moves = board.legal_moves();
-    let moves = mvv_lva::score_moves(moves, board, hash_move);
+    if moves.is_empty() {
+        let (_, checkers) = board.find_pinned();
+        if checkers.popcnt() == 0 {
+            return 0;
+        } else {
+            return (i32::MIN / 2) - depth as i32;
+        }
+    }
+    let moves = score::score_moves(moves, board, hash_move);
     for m in moves.iter() {
         let board = board.make_move_new(m);
         let score = -alpha_beta_negamax(
@@ -196,7 +204,7 @@ pub fn alpha_beta_negamax_root_async(
     let alpha = Arc::new(AtomicI32::new(i32::MIN + 1));
     let beta = Arc::new(i32::MAX);
 
-    let moves = mvv_lva::score_moves(
+    let moves = score::score_moves(
         moves,
         board,
         board

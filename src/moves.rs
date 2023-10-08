@@ -12,7 +12,7 @@ pub enum CastlingSide {
     Both,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Move {
     repr: u16,
 }
@@ -129,7 +129,7 @@ pub const MAX_MOVELIST_LEN: usize = 108;
 #[derive(Debug, Clone)]
 pub struct MoveList {
     pub inner: [Move; MAX_MOVELIST_LEN],
-    len: usize,
+    pub len: usize,
 }
 
 impl MoveList {

@@ -7,20 +7,10 @@ use std::{str::FromStr, time::Duration};
 
 fn main() {
     let executor = futures::executor::ThreadPool::new().unwrap();
-    // let mut board = Board::from_fen("8/8/p1p1Q3/P1P3Rp/5k1P/8/8/6K1 w - - 13 51").unwrap();
     let mut board = Board::default();
     while board.status == Status::Ongoing {
-        loop {
-            let mut m = String::new();
-            std::io::stdin().read_line(&mut m).unwrap();
-            let m = m.trim();
-            let m = parse_move(m);
-            if board.make_move(&m).is_ok() {
-                break;
-            }
-        }
         let (score, m) =
-            alpha_beta_negamax_root_async(&board, 6, &executor, Duration::from_secs(5));
+            alpha_beta_negamax_root_async(&board, 6, &executor, Duration::from_secs(10));
         let m = m.unwrap();
         unsafe { board.make_move_unchecked(&m) };
 
@@ -28,6 +18,18 @@ fn main() {
         println!("score: {score}");
         println!("{m}");
         println!("{board}");
+
+        loop {
+            let mut m = String::new();
+            std::io::stdin().read_line(&mut m).unwrap();
+            let m = m.trim();
+            let m = parse_move(m);
+            if board.make_move(&m).is_ok() {
+                break;
+            } else {
+                println!("illegal move");
+            }
+        }
     }
 }
 
